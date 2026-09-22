@@ -6,6 +6,7 @@
 // nothing else - that was the point of putting an interface in front of the
 // stubs before a model existed.
 import { specFor, StubGenerator, remapWorld, selfIndexKeys, findWeightedReferences } from '../tools/generator.mjs';
+import { pinAssets } from './assets.mjs';
 import { findReferences } from '../tools/schema-refs.mjs';
 import { classify, isFunctionValue } from '../tools/schema.mjs';
 import { assignTiers, TIER } from './tiers.mjs';
@@ -116,7 +117,23 @@ export async function buildWorld(tables, opts = {}) {
   const remap = remapWorld(world, tables, { keySpace: machineryKeys });
   problems.push(...remap.problems);
 
-  return { world, problems, textProblems, remapped: remap.remapped, tiers };
+  // Asset references are neither content nor structure: they point into a
+  // closed set of shipped files. A model writes plausible names for them
+  // ("map_nightmarket", "teamlogo_ravens.png") and every one names a file that
+  // cannot exist, so the map is blank and every crest is a broken image. No
+  // conformance check catches it, because the value IS a valid string.
+  //
+  // Driven from the ORIGINAL tables, which are the only thing that knows a
+  // field was ever a pointer.
+  const assets = opts.assetManifest && opts.assetManifest.length
+    ? pinAssets(world, tables, opts.assetManifest)
+    : { pinned: [], unmatched: [] };
+  for (const p of assets.unmatched) problems.push(`unpinned asset reference: ${p}`);
+
+  return {
+    world, problems, textProblems, remapped: remap.remapped, tiers,
+    pinnedAssets: assets.pinned.length,
+  };
 }
 
 // Writes a generated world into the live `setup` object.

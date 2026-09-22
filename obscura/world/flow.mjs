@@ -58,6 +58,7 @@ export async function startBuild(premise, progressId, done, deps = {}) {
   try {
     if (!setup) throw new Error('the engine is not loaded');
     const keys = await loadKeySets(base, deps.fetch);
+    const assetManifest = deps.assetManifest || await loadAssetManifest(base, deps.fetch);
     const tables = deps.tables || harvestTables(setup);
     const chosen = premise || 'an ordinary town with something underneath';
 
@@ -91,6 +92,7 @@ export async function startBuild(premise, progressId, done, deps = {}) {
       premise: chosen,
       seed: chosen,
       readDuringWorldgen: deps.seeds || OPENING_SEEDS,
+      assetManifest,
       keepKeys: (name) => keys.keep[name] || [],
       verbatimKeys: (name) => keys.verbatim[name] || [],
       onProgress: (p) => say(`Building ${p.done} of ${p.total}  -  ${p.table}`),
@@ -121,6 +123,7 @@ export async function startBuild(premise, progressId, done, deps = {}) {
         premise: chosen,
         lexicon: lex.lexicon,
         lexiconProblems: lex.problems,
+        pinnedAssets: built.pinnedAssets || 0,
         tables: Object.keys(built.world).length,
         problems: built.problems.length,
         textProblems: (built.textProblems || []).length,
@@ -150,6 +153,21 @@ export async function startBuild(premise, progressId, done, deps = {}) {
 // The lexicon lives in a STORY VARIABLE. SugarCube puts story variables in the
 // save and the history, so the words travel with the playthrough and a reload
 // reads the same vocabulary - no separate persistence, no version skew.
+// The shipped art, by filename. A missing or unreachable manifest is not
+// fatal: pinning is skipped and the loader's broken-image handler covers it.
+export async function loadAssetManifest(base, fetchFn) {
+  const f = fetchFn || (typeof fetch === 'function' ? fetch : null);
+  if (!f) return [];
+  try {
+    const res = await f(`${base}world/assets.json`);
+    if (!res || !res.ok) return [];
+    const json = await res.json();
+    return Array.isArray(json.images) ? json.images : [];
+  } catch {
+    return [];
+  }
+}
+
 export function setLexicon(lexicon, deps = {}) {
   const state = deps.state
     || (typeof window !== 'undefined' && window.SugarCube && window.SugarCube.State);

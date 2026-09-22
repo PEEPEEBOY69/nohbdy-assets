@@ -9,8 +9,9 @@ export { assignTiers, openingTables, TIER, OPENING_SEEDS } from './tiers.mjs';
 export { createStore, browserIdb, STORE_NAMES, DB_NAME } from './store.mjs';
 export {
   startBuild, harvestTables, loadKeySets,
-  setLexicon, getLexicon, installLexiconHook,
+  setLexicon, getLexicon, installLexiconHook, loadAssetManifest,
 } from './flow.mjs';
+export { pinAssets, looksLikeAsset, groupManifest, familyOf } from './assets.mjs';
 export {
   DEFAULT_LEXICON, TERMS, LEXICON_PROMPT_KEYS,
   compile as compileLexicon, substitute as substituteLexicon,

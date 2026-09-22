@@ -14,6 +14,12 @@ export {
 export { pinAssets, looksLikeAsset, groupManifest, familyOf } from './assets.mjs';
 export { pinMapRegions, gridFor, MAP_W, MAP_H } from './mapgrid.mjs';
 export {
+  buildPersona, faultsIn, stripPackaging, OUTPUT_RULES,
+} from './persona.mjs';
+export {
+  createLivingWorld, installLivingWorld, TASKS, IDLE_CALLS_PER_DAY,
+} from './living.mjs';
+export {
   DEFAULT_LEXICON, TERMS, LEXICON_PROMPT_KEYS,
   compile as compileLexicon, substitute as substituteLexicon,
   generateLexicon, install as installLexicon,

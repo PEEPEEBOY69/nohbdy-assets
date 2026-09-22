@@ -40,8 +40,13 @@ export function createModel(opts = {}) {
   // One chain. The tail must never reject, or every later call inherits the
   // failure - a lesson already paid for in BlizzardUI.
   let chain = Promise.resolve();
-  const stats = { calls: 0, refused: 0, failed: 0, maxConcurrent: 0 };
+  const stats = { calls: 0, refused: 0, failed: 0, maxConcurrent: 0, background: 0 };
   let inFlight = 0;
+  // Everything waiting on the single chain, not just what is executing. The
+  // background world builder asks this before it schedules anything: with one
+  // shared iframe there is no way to run alongside a call the player is
+  // waiting on, so the only correct answer is not to start one.
+  let queued = 0;
 
   async function run(instruction, callOpts) {
     inFlight += 1;
@@ -65,6 +70,11 @@ export function createModel(opts = {}) {
   return {
     stats,
     available: () => typeof plugin === 'function',
+    // Nothing queued and nothing running. Background work checks this and
+    // declines to schedule otherwise, which is the whole of the idle-only
+    // policy: it cannot preempt, so it must not compete.
+    idle: () => queued === 0,
+    pending: () => queued,
     async ask(instruction, callOpts = {}) {
       if (typeof plugin !== 'function') {
         throw new Error('ai-text-plugin is not loaded');
@@ -76,6 +86,8 @@ export function createModel(opts = {}) {
         err.code = 'OBSCURA_OVER_BUDGET';
         throw err;
       }
+      queued += 1;
+      if (callOpts.background) stats.background += 1;
       const mine = chain.then(() => run(instruction, callOpts));
       chain = mine.then(() => undefined, () => undefined);
       try {
@@ -83,6 +95,8 @@ export function createModel(opts = {}) {
       } catch (err) {
         stats.failed += 1;
         throw err;
+      } finally {
+        queued -= 1;
       }
     },
   };

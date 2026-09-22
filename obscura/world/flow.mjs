@@ -15,6 +15,7 @@ import { AiGenerator } from './ai-generator.mjs';
 import { createModel } from './ai-text.mjs';
 import { OPENING_SEEDS } from './tiers.mjs';
 import { generateLexicon, DEFAULT_LEXICON, install as installLexicon } from './lexicon.mjs';
+import { createLivingWorld, installLivingWorld } from './living.mjs';
 
 // Harvests the chassis's own tables out of the running engine. The payload
 // already ships them, so generation downloads nothing.
@@ -72,8 +73,6 @@ export async function startBuild(premise, progressId, done, deps = {}) {
     // dereference one at module top level - it cost Nohbdy Hub a live mobile
     // crash. So the passage passes it and this only decides what to do with it.
     const model = deps.model || createModel({ plugin: deps.plugin, scope: deps.scope });
-    const generator = deps.generator
-      || (model.available() ? new AiGenerator({ model }) : undefined);
 
     // The vocabulary comes FIRST, and before any table text, for two reasons.
     // It is one cheap call that decides how 366 substitutions across 89
@@ -84,6 +83,13 @@ export async function startBuild(premise, progressId, done, deps = {}) {
     const lex = await generateLexicon(chosen, model);
     if (lex.problems.length) console.warn('Obscura lexicon:', lex.problems);
     setLexicon(lex.lexicon, deps);
+
+    // The generator is built AFTER the lexicon, and carries it. Every field it
+    // writes then uses the same words the passages were just rewritten to -
+    // otherwise the chassis's prose says "hab" while the generated prose says
+    // "dorm room", which is worse than either alone.
+    const generator = deps.generator
+      || (model.available() ? new AiGenerator({ model, lexicon: lex.lexicon }) : undefined);
 
     if (generator) say('Writing your world...');
 
@@ -140,6 +146,22 @@ export async function startBuild(premise, progressId, done, deps = {}) {
       tables: Object.keys(built.world).length,
       builtAt: Date.now(),
     });
+
+    // The world keeps being written after this returns. Only started when a
+    // model is actually present: the stub path builds a complete world and
+    // then stays exactly as built, which is the correct behaviour for it.
+    if (model.available()) {
+      const living = createLivingWorld({
+        model,
+        setup,
+        premise: chosen,
+        lexicon: lex.lexicon,
+        callsPerDay: deps.idleCallsPerDay,
+      });
+      if (installLivingWorld(living, deps)) {
+        if (typeof window !== 'undefined') window.ObscuraLiving = living;
+      }
+    }
 
     say('Ready.');
     if (typeof done === 'function') done(built);

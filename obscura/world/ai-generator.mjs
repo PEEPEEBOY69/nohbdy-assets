@@ -17,6 +17,7 @@
 // stays a string; enum fields are never placeholders, because stubFor fills
 // those from the enum.
 import { StubGenerator } from '../tools/generator.mjs';
+import { buildPersona, faultsIn, stripPackaging } from './persona.mjs';
 import { createModel, estimateTokens, PROMPT_TOKEN_BUDGET } from './ai-text.mjs';
 
 // The filler convention the whole pipeline already uses: `[ob_names-1]`,
@@ -103,9 +104,13 @@ export function singleWordAt(source, path) {
 // no system slot, and the prompt viewer splits on these same labels.
 export function buildPrompt(premise, table, fields, opts = {}) {
   const max = opts.maxChars ?? MAX_REPLACEMENT_CHARS;
+  // The persona replaces the bare WORLD PREMISE header this used to open with.
+  // It carries the premise, the generated vocabulary and the standing output
+  // rules, so the model knows what it is writing before it is told what to
+  // write. Without it the model narrates stage directions and reaches for the
+  // chassis's college vocabulary that the lexicon has just replaced.
   const lines = [
-    'WORLD PREMISE',
-    String(premise || '').trim() || 'an ordinary place with something underneath',
+    buildPersona(premise, opts.lexicon || {}),
     '',
     'TABLE',
     `${table} — writing the text for ${fields.length} field(s) of a life simulator's data`,
@@ -116,7 +121,7 @@ export function buildPrompt(premise, table, fields, opts = {}) {
     '- Every number below must appear exactly once, with a string value.',
     '- Values in the same field group must all be DIFFERENT from each other.',
     `- Keep each value under ${max} characters.`,
-    '- Write it as it would read in the game itself, never about the game.',
+    '- Write it as it would read in the world itself, never about the game.',
     '- SINGLE-WORD fields must be one word containing no spaces.',
     '',
     'FIELDS',
@@ -161,11 +166,19 @@ export function parseReply(text) {
 export function checkReplacement(field, replacement, opts = {}) {
   const max = opts.maxChars ?? MAX_REPLACEMENT_CHARS;
   if (typeof replacement !== 'string') return `${field.path}: not a string`;
-  const trimmed = replacement.trim();
+  // Packaging is removed, not rejected: a good sentence wrapped in quotes or
+  // prefixed with "Here is:" is a formatting slip, and throwing the whole
+  // batch away over it costs a call to get the same words back.
+  const trimmed = stripPackaging(replacement);
   if (!trimmed) return `${field.path}: empty`;
   if (trimmed.length > max) return `${field.path}: ${trimmed.length} chars, over ${max}`;
   if (field.singleWord && /\s/.test(trimmed)) return `${field.label}: must be one word, got "${trimmed}"`;
   if (isPlaceholder(trimmed)) return `${field.label}: still a placeholder`;
+  // The persona forbids these; this is where the forbidding is enforced. A
+  // rejected value is retried with the fault named in PREVIOUS ATTEMPT FAILED,
+  // which is the only feedback the model ever gets.
+  const faults = faultsIn(trimmed);
+  if (faults.length) return `${field.label}: ${faults.join(', ')}`;
   // Identical values inside one pool are the spin from slice 2: every person
   // got the same name, ob_name_in_use rejected every candidate, and
   // ob_unique_random_name never exited. A model asked for 30 names WILL repeat
@@ -195,6 +208,9 @@ export class AiGenerator {
     this.model = opts.model || createModel(opts);
     this.maxChars = opts.maxChars ?? MAX_REPLACEMENT_CHARS;
     this.fieldsPerPrompt = opts.fieldsPerPrompt ?? FIELDS_PER_PROMPT;
+    // Set after the lexicon call, which happens first in the build, so the
+    // model writes new text in the same words the passages were rewritten to.
+    this.lexicon = opts.lexicon || {};
     this.maxFields = opts.maxFields ?? MAX_FIELDS_PER_BUILD;
     this.retries = opts.retries ?? 1;
     this.stats = { fields: 0, written: 0, rejected: 0, batches: 0, fallbacks: 0, deferred: 0 };
@@ -238,6 +254,7 @@ export class AiGenerator {
     let errors = [];
     for (let attempt = 0; attempt <= this.retries; attempt++) {
       const prompt = buildPrompt(spec.premise, spec.table, batch, {
+        lexicon: this.lexicon,
         maxChars: this.maxChars,
         errors: attempt ? errors : null,
       });
@@ -278,7 +295,10 @@ export class AiGenerator {
           taken: used.get(field.group),
         });
         if (bad) { errors.push(bad); this.stats.rejected += 1; continue; }
-        const text = candidate.trim();
+        // The SAME cleaning checkReplacement validated. Using candidate.trim()
+        // here would store the packaging the check just looked past, and the
+        // duplicate set would key on a different string than the one written.
+        const text = stripPackaging(candidate);
         if (setPath(data, field.path, text)) {
           wrote += 1; this.stats.written += 1;
           if (!used.has(field.group)) used.set(field.group, new Set());

@@ -96,6 +96,25 @@ export async function startBuild(premise, progressId, done, deps = {}) {
 
     applyWorld(setup, built.world);
 
+    // A small, bounded summary of what this build actually did. Not the world
+    // itself - that is megabytes and would pin it in memory for the session.
+    // This is what a bug report needs: the premise, how much text the model
+    // wrote, and whether the one-call-at-a-time queue held.
+    //
+    // It gets its OWN global rather than hanging off window.Obscura, because
+    // that is an ES module namespace object: sealed and non-extensible, so
+    // `window.Obscura.lastBuild = x` is a TypeError, not a property.
+    if (typeof window !== 'undefined') {
+      window.ObscuraBuild = {
+        premise: chosen,
+        tables: Object.keys(built.world).length,
+        problems: built.problems.length,
+        textProblems: (built.textProblems || []).length,
+        text: generator && generator.stats ? Object.assign({}, generator.stats) : null,
+        model: model && model.stats ? Object.assign({}, model.stats) : null,
+      };
+    }
+
     const store = deps.store || createStore({});
     await store.saveWorld(deps.slot || 'slot1', {
       premise: chosen,

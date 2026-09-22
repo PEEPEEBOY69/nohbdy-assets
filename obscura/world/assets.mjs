@@ -58,6 +58,12 @@ export function shapeOf(original) {
 // gets a crest. Longest prefix first: "map_obscura_big" must not be read as
 // the "map_" family's plain member when a big one was asked for.
 export const FAMILIES = [
+  // A PLACE's picture is never repointed. The map is carried whole, so every
+  // node keeps its original picture name, and the shipped place art is built
+  // from exactly those names. The engine also appends "_<season>" or "_snow"
+  // to some of them - so pointing one at "any shipped file" produced
+  // ico_image_autumn.png: a UI icon, with a season, that cannot exist.
+  { key: 'loc', test: n => /^loc_/.test(n), pin: false },
   { key: 'map_big', test: n => /^map_.*_big$/.test(n) },
   { key: 'map', test: n => /^map_/.test(n) },
   { key: 'teamlogo', test: n => /^teamlogo_/.test(n) },
@@ -127,7 +133,8 @@ export function pinAssets(world, originals, manifest, opts = {}) {
       }
       // A list OF asset strings.
       const strWitness = orig.find(v => typeof v === 'string');
-      if (strWitness && looksLikeAsset(lastField(path), strWitness)) {
+      if (strWitness && looksLikeAsset(lastField(path), strWitness)
+        && FAMILIES.find(f => f.test(shapeOf(strWitness).stem)).pin !== false) {
         for (let i = 0; i < gen.length; i++) {
           if (typeof gen[i] !== 'string') continue;
           const shape = shapeOf(strWitness);
@@ -163,6 +170,7 @@ export function pinAssets(world, originals, manifest, opts = {}) {
       if (looksLikeAsset(field, ov)) {
         if (typeof gen[field] !== 'string') continue;
         const shape = shapeOf(ov);
+        if (FAMILIES.find(f => f.test(shape.stem)).pin === false) continue;
         const file = pick(familyOf(shape.stem), p, 'other');
         if (!file) { unmatched.push(p); continue; }
         gen[field] = render(shape, file);

@@ -88,7 +88,16 @@ export function browserIdb(dbName, stores) {
         if (!req.result.objectStoreNames.contains(store)) req.result.createObjectStore(store);
       }
     };
-    req.onsuccess = () => resolve(req.result);
+    // Another connection asking to upgrade (a second tab, or a newer build
+    // adding a store) waits until every open connection closes. One that never
+    // closes deadlocks the upgrade, so each connection closes itself when
+    // asked and reopens on its next use.
+    req.onblocked = () => console.warn('Obscura: storage upgrade is waiting for another tab of the game to close');
+    req.onsuccess = () => {
+      const db = req.result;
+      db.onversionchange = () => { db.close(); opened = null; };
+      resolve(db);
+    };
     req.onerror = () => reject(req.error);
   });
   // Opens at whatever version exists, then upgrades only if a store we need is
@@ -123,4 +132,16 @@ export function browserIdb(dbName, stores) {
     delete: (store, key) => run(store, 'readwrite', (os) => os.delete(key)),
     keys: (store) => run(store, 'readonly', (os) => os.getAllKeys()),
   };
+}
+
+// ONE store per page. Each createStore() opens its own connection, and an
+// upgrade (adding a store for a returning player whose database predates it)
+// waits for every connection to close - three stores in one page could wait on
+// each other. Injected backends (tests) always get their own.
+let pageStore = null;
+
+export function sharedStore(opts = {}) {
+  if (opts.idb) return createStore(opts);
+  if (!pageStore) pageStore = createStore(opts);
+  return pageStore;
 }

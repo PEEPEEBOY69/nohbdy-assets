@@ -21,6 +21,7 @@
 // links ([[text|Target]], display text safe) and ZERO bare links ([[Target]])
 // contain any of these words, so no passage name is reachable by substitution.
 // The pipe split is implemented anyway, because a future passage could add one.
+import { parseModelJson } from './safejson.mjs';
 
 // The neutral default. NOT college vocabulary: if no model generated a lexicon,
 // the game should still read as a generic institution rather than a campus,
@@ -393,7 +394,7 @@ export async function generateLexicon(premise, model) {
     const start = src.indexOf('{');
     const end = src.lastIndexOf('}');
     if (start === -1 || end <= start) throw new Error('no JSON object in the reply');
-    const parsed = JSON.parse(src.slice(start, end + 1));
+    const parsed = parseModelJson(src.slice(start, end + 1));
     const out = { ...DEFAULT_LEXICON };
     for (const [key] of LEXICON_PROMPT_KEYS) {
       const v = parsed[key];

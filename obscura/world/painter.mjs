@@ -24,6 +24,7 @@ import { keyOutBackground, alphaBox, fitInto, hardenAlpha, FRAME_W, FRAME_H, SCA
 import { placesIn, exitsOf } from './hub.mjs';
 import { displayName } from './places.mjs';
 import { WORLD_ID_KEY } from './durable.mjs';
+import { parseModelJson } from './safejson.mjs';
 
 export const STYLE = 'isometric pixel art game asset, a small cutaway diorama of one place seen from above at an '
   + 'angle, diamond-shaped floor, clean dark pixel outlines, flat bright colours, simple shading, centred, plain '
@@ -86,7 +87,7 @@ export function parseLooks(text, batch, faultsIn = defaultFaults) {
   const b = body.lastIndexOf('}');
   if (a === -1 || b <= a) return { looks, error: 'no JSON object in the reply' };
   let parsed;
-  try { parsed = JSON.parse(body.slice(a, b + 1)); } catch (e) { return { looks, error: `bad JSON: ${e.message}` }; }
+  try { parsed = parseModelJson(body.slice(a, b + 1)); } catch (e) { return { looks, error: `bad JSON: ${e.message}` }; }
   batch.forEach((p, i) => {
     const v = parsed[String(i + 1)];
     if (typeof v !== 'string') return;

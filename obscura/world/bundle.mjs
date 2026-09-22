@@ -6,7 +6,7 @@
 // has no test. tests/build.test.mjs asserts the whole reachable graph.
 export { buildWorld, referenceGraph, applyWorld } from './builder.mjs';
 export { assignTiers, openingTables, TIER, OPENING_SEEDS } from './tiers.mjs';
-export { createStore, browserIdb, STORE_NAMES, DB_NAME } from './store.mjs';
+export { createStore, sharedStore, browserIdb, STORE_NAMES, DB_NAME } from './store.mjs';
 export {
   startBuild, harvestTables, loadKeySets,
   setLexicon, getLexicon, installLexiconHook, installHubHook, installEventsHook, installPlacesHook,

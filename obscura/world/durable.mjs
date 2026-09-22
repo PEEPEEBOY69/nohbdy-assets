@@ -24,11 +24,47 @@ export function newWorldId(rand = Math.random, now = Date.now) {
   return `w${now().toString(36)}${Math.floor(rand() * 2 ** 32).toString(36)}`;
 }
 
-// Through JSON, so nothing IndexedDB's structured clone would throw on - a
-// function, a DOM node - can reach it. A cycle makes the whole value unusable,
-// which is reported as undefined rather than stored half-written.
+// A copy IndexedDB's structured clone can take: functions and symbols are
+// dropped (removed from objects, null in arrays - JSON's rules), and a cycle
+// makes the whole value unusable, reported as undefined rather than stored
+// half-written. Dates, Maps and Sets are kept, because structured clone keeps
+// them and the engine may rely on them.
+//
+// NOT a JSON round-trip. SugarCube extends JSON so that functions survive
+// one: stringify wraps a function and parse revives it. In the game page
+// JSON.parse(JSON.stringify(table)) handed the generator's stub functions
+// straight back, and IndexedDB refused the whole world with a DataCloneError.
 export function plain(value) {
-  try { return JSON.parse(JSON.stringify(value)); } catch { return undefined; }
+  const seen = new WeakSet();
+  const CYCLE = {};
+  const walk = (v) => {
+    const t = typeof v;
+    if (t === 'function' || t === 'symbol' || t === 'bigint') return undefined;
+    if (v === null || t !== 'object') return v;
+    if (seen.has(v)) throw CYCLE;
+    seen.add(v);
+    try {
+      if (Array.isArray(v)) return v.map((x) => { const c = walk(x); return c === undefined ? null : c; });
+      if (v instanceof Date) return new Date(v.getTime());
+      if (v instanceof Map) {
+        const m = new Map();
+        for (const [k, x] of v) { const c = walk(x); if (c !== undefined) m.set(walk(k), c); }
+        return m;
+      }
+      if (v instanceof Set) {
+        const s = new Set();
+        for (const x of v) { const c = walk(x); if (c !== undefined) s.add(c); }
+        return s;
+      }
+      if (typeof Node !== 'undefined' && v instanceof Node) return undefined;
+      const out = {};
+      for (const k of Object.keys(v)) { const c = walk(v[k]); if (c !== undefined) out[k] = c; }
+      return out;
+    } finally {
+      seen.delete(v);
+    }
+  };
+  try { return walk(value); } catch (e) { if (e === CYCLE) return undefined; throw e; }
 }
 
 export async function persistWorld(store, id, world, meta = {}) {

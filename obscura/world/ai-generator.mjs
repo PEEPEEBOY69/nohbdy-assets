@@ -19,6 +19,7 @@
 import { StubGenerator } from '../tools/generator.mjs';
 import { buildPersona, faultsIn, stripPackaging } from './persona.mjs';
 import { createModel, estimateTokens, PROMPT_TOKEN_BUDGET } from './ai-text.mjs';
+import { parseModelJson } from './safejson.mjs';
 
 // The filler convention the whole pipeline already uses: `[ob_names-1]`,
 // `[description — unwritten #123]`. `#distinguish` and the premise weaving test
@@ -151,7 +152,7 @@ export function parseReply(text) {
   const end = body.lastIndexOf('}');
   if (start === -1 || end <= start) return { value: null, error: 'no JSON object in the reply' };
   try {
-    const parsed = JSON.parse(body.slice(start, end + 1));
+    const parsed = parseModelJson(body.slice(start, end + 1));
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       return { value: null, error: 'reply was not a JSON object' };
     }

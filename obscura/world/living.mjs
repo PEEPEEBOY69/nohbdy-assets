@@ -28,6 +28,7 @@
 // never invents a shape.
 import { buildPersona, faultsIn, stripPackaging } from './persona.mjs';
 import { registerAuthoredEvent } from './events.mjs';
+import { parseModelJson } from './safejson.mjs';
 
 export const IDLE_CALLS_PER_DAY = 3;
 export const MIN_TICKS_BETWEEN = 4;
@@ -124,7 +125,7 @@ export function parseTaskReply(text) {
   const b = body.lastIndexOf('}');
   if (a === -1 || b <= a) return { value: null, error: 'no JSON object in the reply' };
   try {
-    const parsed = JSON.parse(body.slice(a, b + 1));
+    const parsed = parseModelJson(body.slice(a, b + 1));
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       return { value: null, error: 'reply was not a JSON object' };
     }

@@ -10,7 +10,7 @@
 //
 // The passage is now one <<run>>. Everything below is reachable from tests.
 import { buildWorld, applyWorld } from './builder.mjs';
-import { createStore } from './store.mjs';
+import { sharedStore } from './store.mjs';
 import { AiGenerator } from './ai-generator.mjs';
 import { sharedModel } from './ai-text.mjs';
 import { OPENING_SEEDS } from './tiers.mjs';
@@ -180,7 +180,7 @@ export async function startBuild(premise, progressId, done, deps = {}) {
       vars[EVENTS_KEY] = {};
     }
     markWorldApplied(worldId);
-    const store = deps.store || createStore({});
+    const store = deps.store || sharedStore();
     try {
       const saved = await persistWorld(store, worldId, built.world, {
         premise: chosen, lexicon: lex.lexicon, builtAt: Date.now(),
@@ -270,7 +270,7 @@ export function installWorldRestore(deps = {}) {
   const has = deps.hasPassage
     || ((name) => { try { return !!(SC && SC.Story && SC.Story.has(name)); } catch { return false; } });
   durable = createDurable({
-    store: deps.store || createStore({}),
+    store: deps.store || sharedStore(),
     setup: setupOf,
     state: varsOf,
     apply: applyWorld,
@@ -299,11 +299,16 @@ export function installWorldRestore(deps = {}) {
   if (builtWorldId) durable.markApplied(builtWorldId);
 
   const report = (r) => {
+    durable.last = r;
     if (r && r.status === 'restored') console.info('Obscura: world restored', r);
     if (r && r.status === 'missing') console.warn('Obscura: this save\'s world is not stored in this browser', r);
     return r;
   };
-  const check = () => durable.ensure().then(report, (err) => console.error('Obscura: world restore failed', err));
+  const check = () => durable.ensure().then(report, (err) => {
+    durable.last = { status: 'failed', error: String(err && err.message ? err.message : err) };
+    console.error('Obscura: world restore failed', err);
+  });
+  if (typeof window !== 'undefined') window.ObscuraDurable = durable;
   const $ = deps.jQuery || (typeof window !== 'undefined' ? window.jQuery || window.$ : null);
   const doc = deps.document || (typeof document !== 'undefined' ? document : null);
   if ($ && doc) $(doc).on(':passagedisplay', check);
@@ -373,7 +378,7 @@ export function installPainterHook(deps = {}) {
     const vars = () => ((deps.state || (SC && SC.State) || {}).variables || {});
     return installPainter({
       ...deps,
-      store: deps.store || createStore({}),
+      store: deps.store || sharedStore(),
       model: deps.model || (typeof deps.textPlugin === 'function' ? sharedModel({ plugin: deps.textPlugin }) : null),
       persona: () => buildPersona(vars().obscuraPremise || '', getLexicon(deps)),
       faultsIn,

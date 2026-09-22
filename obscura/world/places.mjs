@@ -15,6 +15,7 @@
 // node, and only what is DISPLAYED is routed through them: the hub, and
 // ob_get_location_name(). Anything that reads node.name directly keeps working,
 // and the names travel with the save.
+import { parseModelJson } from './safejson.mjs';
 
 export const STATE_KEY = 'obscuraPlaceNames';
 export const PLACES_PER_CALL = 30;
@@ -75,7 +76,7 @@ export function parsePlaceNames(text, batch, faultsIn = () => [], taken = new Se
   const b = body.lastIndexOf('}');
   if (a === -1 || b <= a) return { names: out, error: 'no JSON object in the reply' };
   let parsed;
-  try { parsed = JSON.parse(body.slice(a, b + 1)); } catch (e) { return { names: out, error: `bad JSON: ${e.message}` }; }
+  try { parsed = parseModelJson(body.slice(a, b + 1)); } catch (e) { return { names: out, error: `bad JSON: ${e.message}` }; }
   batch.forEach((p, i) => {
     const v = parsed[String(i + 1)];
     if (typeof v !== 'string') return;

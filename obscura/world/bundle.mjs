@@ -9,8 +9,14 @@ export { assignTiers, openingTables, TIER, OPENING_SEEDS } from './tiers.mjs';
 export { createStore, browserIdb, STORE_NAMES, DB_NAME } from './store.mjs';
 export {
   startBuild, harvestTables, loadKeySets,
-  setLexicon, getLexicon, installLexiconHook, loadAssetManifest,
+  setLexicon, getLexicon, installLexiconHook, installHubHook, installEventsHook,
+  loadAssetManifest,
 } from './flow.mjs';
+export { hubHtml, placesIn, startingPlace, exitsOf, installHub } from './hub.mjs';
+export {
+  pruneDanglingEvents, registerAuthoredEvent, authoredEventText, freeSlot,
+  EVENT_SLOTS, slotNames,
+} from './events.mjs';
 export { pinAssets, looksLikeAsset, groupManifest, familyOf } from './assets.mjs';
 export { pinMapRegions, gridFor, MAP_W, MAP_H } from './mapgrid.mjs';
 export {

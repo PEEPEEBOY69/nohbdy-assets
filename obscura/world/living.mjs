@@ -27,6 +27,7 @@
 // structurally identical to something the engine already handles. The model
 // never invents a shape.
 import { buildPersona, faultsIn, stripPackaging } from './persona.mjs';
+import { registerAuthoredEvent } from './events.mjs';
 
 export const IDLE_CALLS_PER_DAY = 3;
 export const MIN_TICKS_BETWEEN = 4;
@@ -164,6 +165,66 @@ export function applyTaskReply(container, sample, reply, opts = {}) {
   return { added: name, wrote, error: null };
 }
 
+// Authoring an EVENT is different from authoring a record: it does not clone a
+// shape, it writes prose into a shipped slot passage and registers a record
+// that copies its tags from a real event. Kept separate for that reason.
+export function buildEventPrompt(premise, lexicon) {
+  return [
+    buildPersona(premise, lexicon),
+    '',
+    'TASK',
+    'Something small that could happen to anyone here, on an ordinary day.',
+    '',
+    'RULES',
+    '- Reply with ONLY a JSON object. No prose, no markdown, no code fences.',
+    '- "title": three to six words naming what happens.',
+    '- "text": two or three sentences, present tense, in the second person.',
+    '- It must be self-contained: no names of people, no consequences to track.',
+    `- Keep "text" under ${MAX_FIELD_CHARS} characters.`,
+  ].join('\n');
+}
+
+export async function runEventTask(deps, stats) {
+  const setup = deps.setup;
+  const state = deps.state
+    || (typeof window !== 'undefined' && window.SugarCube && window.SugarCube.State);
+  const vars = state && state.variables;
+  if (!vars) return null;
+
+  let reply;
+  try {
+    reply = await deps.model.ask(buildEventPrompt(deps.premise, deps.lexicon),
+      { maxTokens: 240, temperature: 0.95, background: true });
+  } catch (err) {
+    stats.failed += 1;
+    stats.problems.push(`event: ${err && err.message ? err.message : String(err)}`);
+    return null;
+  }
+  const { value, error } = parseTaskReply(reply);
+  if (error) {
+    stats.failed += 1;
+    stats.problems.push(`event: ${error}`);
+    return null;
+  }
+  const text = stripPackaging(String(value.text || ''));
+  if (!text || faultsIn(text).length) {
+    stats.failed += 1;
+    stats.problems.push(`event: ${text ? faultsIn(text).join(', ') : 'no text'}`);
+    return null;
+  }
+  const res = registerAuthoredEvent(setup, vars, {
+    title: stripPackaging(String(value.title || ''), 'name'),
+    text,
+  });
+  if (res.error) {
+    stats.failed += 1;
+    stats.problems.push(`event: ${res.error}`);
+    return null;
+  }
+  stats.added += 1;
+  return { task: 'event', name: res.slot, label: 'something can happen now' };
+}
+
 export function createLivingWorld(deps = {}) {
   const stats = {
     ticks: 0, scheduled: 0, added: 0, skippedBusy: 0, skippedBudget: 0,
@@ -192,13 +253,22 @@ export function createLivingWorld(deps = {}) {
     const model = deps.model;
     if (!setup || !model) return null;
 
+    // The event task is one of the rotation, not a special case: every fourth
+    // turn the world gains something that can HAPPEN rather than something
+    // that merely exists.
+    if (taskIndex % (TASKS.length + 1) === TASKS.length) {
+      taskIndex = (taskIndex + 1) % (TASKS.length + 1);
+      const ev = await runEventTask(deps, stats);
+      if (ev) return ev;
+    }
+
     // Rotate, so one table does not grow while the others stay frozen.
     for (let i = 0; i < TASKS.length; i++) {
       const task = TASKS[(taskIndex + i) % TASKS.length];
       const container = containerFor(setup, task);
       const list = records(container);
       if (!list.length) continue;
-      taskIndex = (taskIndex + i + 1) % TASKS.length;
+      taskIndex = (taskIndex + i + 1) % (TASKS.length + 1);
 
       const [, sample] = list[Math.floor(Math.random() * list.length)];
       const names = list.map(([k]) => k).slice(0, 40);

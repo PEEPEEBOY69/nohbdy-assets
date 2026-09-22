@@ -16,6 +16,8 @@ import { createModel } from './ai-text.mjs';
 import { OPENING_SEEDS } from './tiers.mjs';
 import { generateLexicon, DEFAULT_LEXICON, install as installLexicon } from './lexicon.mjs';
 import { createLivingWorld, installLivingWorld } from './living.mjs';
+import { installHub } from './hub.mjs';
+import { installEvents } from './events.mjs';
 
 // Harvests the chassis's own tables out of the running engine. The payload
 // already ships them, so generation downloads nothing.
@@ -219,6 +221,20 @@ export function getLexicon(deps = {}) {
 // owns. The bundle is imported once, so a module-level flag is exactly the
 // right scope.
 const installedOn = new WeakSet();
+
+// The main loop's engine-facing half. Installed at boot rather than after a
+// build, because a RESTORED save arrives with a world already in state and
+// still needs setup.ob_obscura_* to exist before its passage renders.
+export function installHubHook(deps = {}) {
+  try { return installHub(deps); } catch { return false; }
+}
+
+// Pruning has to happen before anything can pick an event, and a restored save
+// needs it as much as a new game does. Idempotent, so running it twice costs
+// nothing.
+export function installEventsHook(deps = {}) {
+  try { return installEvents(deps); } catch { return null; }
+}
 
 export function installLexiconHook(deps = {}) {
   const config = deps.config

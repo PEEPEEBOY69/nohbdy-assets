@@ -119,12 +119,27 @@ function hash(s) {
 // something the generated world actually has.
 export function resolveReferences(world, tables, opts = {}) {
   const fields = opts.fields || findReferenceFields(tables, opts);
+  // The pool is what the world ACTUALLY HAS, which is not the same as what was
+  // generated. Only opening-tier tables are regenerated in play; the rest are
+  // carried unchanged, so a reference into a carried table must resolve
+  // against the carried keys.
+  //
+  // This is exactly the gap that kept character creation broken after the
+  // reference pass was already running: offline every table was generated and
+  // outfits resolved, but in-page `clothes` was carried, so its pool was empty
+  // and 133 outfit items stayed placeholders. Two environments, one of them
+  // lying.
+  const keysOf = (t) => (t && typeof t === 'object' && !Array.isArray(t))
+    ? Object.keys(t).filter(k => t[k] && typeof t[k] === 'object')
+    : [];
   const genKeys = new Map();
+  for (const [name, t] of Object.entries(tables || {})) {
+    const keys = keysOf(t);
+    if (keys.length) genKeys.set(name, keys);
+  }
   for (const [name, t] of Object.entries(world || {})) {
-    if (t && typeof t === 'object' && !Array.isArray(t)) {
-      const keys = Object.keys(t).filter(k => t[k] && typeof t[k] === 'object');
-      if (keys.length) genKeys.set(name, keys);
-    }
+    const keys = keysOf(t);
+    if (keys.length) genKeys.set(name, keys);
   }
 
   const resolved = [];

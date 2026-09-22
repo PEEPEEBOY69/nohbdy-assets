@@ -14,6 +14,7 @@ import { createStore } from './store.mjs';
 import { AiGenerator } from './ai-generator.mjs';
 import { createModel } from './ai-text.mjs';
 import { OPENING_SEEDS } from './tiers.mjs';
+import { generateLexicon, DEFAULT_LEXICON, install as installLexicon } from './lexicon.mjs';
 
 // Harvests the chassis's own tables out of the running engine. The payload
 // already ships them, so generation downloads nothing.
@@ -72,6 +73,17 @@ export async function startBuild(premise, progressId, done, deps = {}) {
     const model = deps.model || createModel({ plugin: deps.plugin, scope: deps.scope });
     const generator = deps.generator
       || (model.available() ? new AiGenerator({ model }) : undefined);
+
+    // The vocabulary comes FIRST, and before any table text, for two reasons.
+    // It is one cheap call that decides how 366 substitutions across 89
+    // passages will read, and the generated table text should be able to use
+    // the same words the passages will. A failure here is never fatal: the
+    // default lexicon is already neutral rather than college vocabulary.
+    say('Naming things...');
+    const lex = await generateLexicon(chosen, model);
+    if (lex.problems.length) console.warn('Obscura lexicon:', lex.problems);
+    setLexicon(lex.lexicon, deps);
+
     if (generator) say('Writing your world...');
 
     const built = await buildWorld(tables, {
@@ -107,6 +119,8 @@ export async function startBuild(premise, progressId, done, deps = {}) {
     if (typeof window !== 'undefined') {
       window.ObscuraBuild = {
         premise: chosen,
+        lexicon: lex.lexicon,
+        lexiconProblems: lex.problems,
         tables: Object.keys(built.world).length,
         problems: built.problems.length,
         textProblems: (built.textProblems || []).length,
@@ -118,6 +132,7 @@ export async function startBuild(premise, progressId, done, deps = {}) {
     const store = deps.store || createStore({});
     await store.saveWorld(deps.slot || 'slot1', {
       premise: chosen,
+      lexicon: lex.lexicon,
       tables: Object.keys(built.world).length,
       builtAt: Date.now(),
     });
@@ -130,4 +145,46 @@ export async function startBuild(premise, progressId, done, deps = {}) {
     console.error('Obscura world build failed', err);
     throw err;
   }
+}
+
+// The lexicon lives in a STORY VARIABLE. SugarCube puts story variables in the
+// save and the history, so the words travel with the playthrough and a reload
+// reads the same vocabulary - no separate persistence, no version skew.
+export function setLexicon(lexicon, deps = {}) {
+  const state = deps.state
+    || (typeof window !== 'undefined' && window.SugarCube && window.SugarCube.State);
+  if (!state || !state.variables) return false;
+  state.variables.obscuraLexicon = lexicon;
+  return true;
+}
+
+export function getLexicon(deps = {}) {
+  const state = deps.state
+    || (typeof window !== 'undefined' && window.SugarCube && window.SugarCube.State);
+  const v = state && state.variables && state.variables.obscuraLexicon;
+  return v && typeof v === 'object' ? v : DEFAULT_LEXICON;
+}
+
+// Installed ONCE at boot, reading the lexicon live on every passage render.
+// It must be installed before the first passage renders and must not depend on
+// a world having been built, because the chassis's own opening passages are
+// full of college vocabulary too.
+//
+// The "installed" flag lives HERE, not on Config.passages. SugarCube's Config
+// objects are non-extensible: assigning the existing `onProcess` property is
+// allowed, but adding a marker property throws
+// "Cannot add property ..., object is not extensible". Same lesson as the
+// module namespace object - do not hang state on an object another library
+// owns. The bundle is imported once, so a module-level flag is exactly the
+// right scope.
+const installedOn = new WeakSet();
+
+export function installLexiconHook(deps = {}) {
+  const config = deps.config
+    || (typeof window !== 'undefined' && window.SugarCube && window.SugarCube.Config);
+  if (!config || !config.passages) return false;
+  if (installedOn.has(config.passages)) return true;
+  installLexicon(config, () => getLexicon(deps));
+  installedOn.add(config.passages);
+  return true;
 }

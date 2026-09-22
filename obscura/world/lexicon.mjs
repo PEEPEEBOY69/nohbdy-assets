@@ -1,0 +1,411 @@
+// world/lexicon.mjs — the setting's own vocabulary, substituted into passage text.
+//
+// The chassis is a college simulator, and renaming it to a different FIXED
+// setting would just be a different skin. This project's whole premise is that
+// the player names the world, so the vocabulary has to be generated too: a
+// cyberpunk premise should call them runners and handlers, a naval one crew and
+// officers. Same machinery, different words.
+//
+// WHY SUBSTITUTION AND NOT A REWRITE. There are 286 passages carrying ~1,300
+// occurrences of college vocabulary in prose. Rewriting them by hand is a
+// one-time cost that buys one setting; substituting at render time buys every
+// setting, and keeps the chassis diffable against the original.
+//
+// THE HAZARD, MEASURED. Of 1,613 `class` occurrences in passage source, 1,433
+// are HTML `class="..."` attributes and 108 are the noun. A blind
+// find-and-replace corrupts 1,433 attributes and destroys the UI. So this is
+// markup-aware: it substitutes only in PROSE and never inside a tag, a macro,
+// a variable name, or a link target.
+//
+// Link targets were the danger that would have sunk this. Measured: 3 piped
+// links ([[text|Target]], display text safe) and ZERO bare links ([[Target]])
+// contain any of these words, so no passage name is reachable by substitution.
+// The pipe split is implemented anyway, because a future passage could add one.
+
+// The neutral default. NOT college vocabulary: if no model generated a lexicon,
+// the game should still read as a generic institution rather than a campus,
+// because "make it ours" is the point. A generated lexicon overrides all of it.
+export const DEFAULT_LEXICON = {
+  // TWO institution words, because the chassis uses both and they are not
+  // interchangeable. `institution` is the proper name, standing in for the
+  // original's brand ("F-K University"). `institution_kind` is the common noun
+  // that fills slots like "Renowned university" or "a college" - substituting a
+  // proper name there produces "Renowned the Grid", which is how this was first
+  // measured and why the two are separate.
+  institution: 'the Institute',
+  institution_kind: 'institute',
+  district: 'grounds',
+  division: 'division',
+  member: 'member',
+  mentor: 'mentor',
+  session: 'session',
+  program: 'track',
+  module: 'module',
+  quarters: 'quarters',
+  roomshare: 'bunkmate',
+  assessment: 'assessment',
+  standing: 'standing',
+  commons: 'commons',
+  prep: 'prep',
+  staff: 'staff',
+  initiate: 'initiate',
+};
+
+// Every term the chassis uses, mapped to a lexicon key. Order matters: longer
+// phrases first, so "greek house" wins over "house" and "rush week" over
+// "week". Each entry is [pattern, lexiconKey, {plural}] where the pattern is
+// matched case-insensitively on word boundaries and the replacement inherits
+// the original's capitalisation.
+export const TERMS = [
+  // The original's brand, which is a proper name and takes the proper-name key.
+  ['f-k university', 'institution'],
+  ['f-k', 'institution'],
+  ['greek house', 'division', { plural: 'greek houses' }],
+  ['greekhouse', 'division', { plural: 'greekhouses' }],
+  ['greek life', 'division'],
+  ['greek row', 'district'],
+  ['rush week', 'session'],
+  ['dormitory', 'quarters', { plural: 'dormitories' }],
+  ['classroom', 'session', { plural: 'classrooms' }],
+  ['roommate', 'roomshare', { plural: 'roommates' }],
+  ['professor', 'mentor', { plural: 'professors' }],
+  ['fraternity', 'division', { plural: 'fraternities' }],
+  ['sorority', 'division', { plural: 'sororities' }],
+  ['university', 'institution_kind', { plural: 'universities' }],
+  ['homework', 'prep'],
+  ['student', 'member', { plural: 'students' }],
+  ['college', 'institution_kind', { plural: 'colleges' }],
+  ['faculty', 'staff'],
+  ['campus', 'district', { plural: 'campuses' }],
+  ['course', 'module', { plural: 'courses' }],
+  ['school', 'institution_kind', { plural: 'schools' }],
+  ['pledge', 'initiate', { plural: 'pledges' }],
+  ['lecture', 'session', { plural: 'lectures' }],
+  ['degree', 'program', { plural: 'degrees' }],
+  ['major', 'program', { plural: 'majors' }],
+  ['dorm', 'quarters', { plural: 'dorms' }],
+  ['class', 'session', { plural: 'classes' }],
+  ['exam', 'assessment', { plural: 'exams' }],
+  ['frat', 'division', { plural: 'frats' }],
+  ['quad', 'commons', { plural: 'quads' }],
+  ['gpa', 'standing'],
+];
+
+// Carries the original's case: lower, UPPER, Title. Mixed case falls back to
+// the replacement as written, which is what a proper noun wants.
+// A replacement may carry its own leading article ("the Grid"), written
+// lower-case on purpose. Title-casing it mid-sentence gives "welcome to The
+// Grid", so capitalisation has to know where the sentence starts.
+export function carriesArticle(word) {
+  return /^(the|a|an)\s/i.test(String(word || ''));
+}
+
+export function atSentenceStart(full, offset) {
+  if (!offset) return true;
+  const before = String(full).slice(0, offset);
+  return /(^|[.!?:;]|\n)\s*$/.test(before);
+}
+
+// Decides the replacement's case from the ORIGINAL's position, not its
+// capitals. The original's capital often comes from being a proper adjective
+// - "Greek house", "F-K University" - and inheriting it gives "at the
+// Syndicate" mid-sentence. The lexicon already encodes what is a proper noun
+// by how it writes the word ("the Grid" keeps its G, "syndicate" does not), so
+// the word is used as authored and only position can capitalise it.
+export function caseFor(full, offset, original, replacement) {
+  if (original === original.toUpperCase() && /[A-Z]{2}/.test(original)) {
+    return replacement.toUpperCase();
+  }
+  if (atSentenceStart(full, offset)) {
+    return replacement[0].toUpperCase() + replacement.slice(1);
+  }
+  return replacement;
+}
+
+export function matchCase(original, replacement) {
+  if (!original) return replacement;
+  if (original === original.toUpperCase() && /[A-Z]{2}/.test(original)) {
+    return replacement.toUpperCase();
+  }
+  if (original[0] === original[0].toUpperCase()) {
+    return replacement[0].toUpperCase() + replacement.slice(1);
+  }
+  return replacement;
+}
+
+// Naive-but-adequate pluralisation for the replacement side. The terms are all
+// ordinary English nouns chosen for the default lexicon, and a generated
+// lexicon supplies its own words - so this only has to not embarrass itself.
+export function pluralise(word) {
+  if (/[^aeiou]y$/i.test(word)) return word.slice(0, -1) + 'ies';
+  if (/(s|sh|ch|x|z)$/i.test(word)) return word + 'es';
+  return word + 's';
+}
+
+// Splits passage source into PROSE and CODE segments. Only prose is rewritten.
+//
+// CODE is anything the engine reads as structure:
+//   <<macro ...>>   a macro call, including its arguments and any strings
+//   <tag ...>       an HTML tag, where class="..." lives
+//   $var  _var      a SugarCube variable name
+// LINKS are split: [[display|Target]] keeps the target as code and the display
+// text as prose. A bare [[Target]] is entirely code - substituting it would
+// retarget the link at a passage that does not exist.
+export function segment(text) {
+  const out = [];
+  const src = String(text == null ? '' : text);
+  let i = 0;
+  let prose = '';
+  const flush = () => { if (prose) { out.push({ kind: 'prose', text: prose }); prose = ''; } };
+  const code = (s) => { flush(); out.push({ kind: 'code', text: s }); };
+
+  while (i < src.length) {
+    // A macro. Scan to the matching '>>' so `<<if $x > 3>>` is not cut short
+    // at the bare '>'.
+    if (src.startsWith('<<', i)) {
+      const end = src.indexOf('>>', i + 2);
+      const stop = end === -1 ? src.length : end + 2;
+      code(src.slice(i, stop));
+      i = stop;
+      continue;
+    }
+    // A link. The display half is prose; the target half never is.
+    if (src.startsWith('[[', i)) {
+      const end = src.indexOf(']]', i + 2);
+      if (end === -1) { prose += src[i++]; continue; }
+      const inner = src.slice(i + 2, end);
+      const sep = ['|', '->'].map(s => ({ s, at: inner.indexOf(s) })).filter(x => x.at !== -1)
+        .sort((a, b) => a.at - b.at)[0];
+      const back = inner.indexOf('<-');
+      code('[[');
+      if (back !== -1) {
+        // [[Target<-display]] - target first.
+        code(inner.slice(0, back + 2));
+        out.push({ kind: 'prose', text: inner.slice(back + 2) });
+      } else if (sep) {
+        out.push({ kind: 'prose', text: inner.slice(0, sep.at) });
+        code(inner.slice(sep.at));
+      } else {
+        code(inner);
+      }
+      code(']]');
+      i = end + 2;
+      continue;
+    }
+    // An HTML tag.
+    if (src[i] === '<') {
+      const end = src.indexOf('>', i + 1);
+      if (end !== -1 && /^<\/?[A-Za-z]/.test(src.slice(i, i + 2 + 1))) {
+        code(src.slice(i, end + 1));
+        i = end + 1;
+        continue;
+      }
+      prose += src[i++];
+      continue;
+    }
+    // A variable name.
+    if (src[i] === '$' || src[i] === '_') {
+      const m = /^[$_][A-Za-z_][\w.]*/.exec(src.slice(i));
+      if (m) { code(m[0]); i += m[0].length; continue; }
+    }
+    prose += src[i++];
+  }
+  flush();
+  return out;
+}
+
+// "an" before a vowel SOUND, not a vowel letter. The replacement words come
+// from a generated lexicon, so this cannot be a lookup table - but it only has
+// to beat the naive letter test, which turns "a unique post" into "an unique
+// post". The exceptions are the ordinary consonant-onset u- and eu- words.
+export function articleFor(word) {
+  const w = String(word || '').toLowerCase();
+  if (/^(uni|use|user|usual|utili|one|euro|eu)/.test(w)) return 'a';
+  return /^[aeiou]/.test(w) ? 'an' : 'a';
+}
+
+// The zero-article idiom. English says "go to college" with no article but
+// "go to the academy" with one, so replacing the noun alone leaves "go to
+// academy". Measured: 12 occurrences across the corpus. The preposition is
+// part of the pattern so the article can be inserted with it.
+// 'just' is not a preposition, but "all just school" is the same zero-article
+// mass-noun use and reads as "all just arcology" without it.
+const ZERO_ARTICLE_PREPS = ['to', 'at', 'in', 'of', 'from', 'through', 'after', 'before', 'just', 'about'];
+const ZERO_ARTICLE_NOUNS = { college: 'institution_kind', school: 'institution_kind', university: 'institution_kind' };
+
+// Built once per lexicon, not per passage: 286 passages x 25 terms is a lot of
+// RegExp construction to repeat on every render.
+export function compile(lexicon = {}) {
+  const lex = { ...DEFAULT_LEXICON, ...lexicon };
+  const rules = [];
+
+  // 1. Zero-article idioms first - they are longer and more specific than the
+  //    bare noun, and the bare-noun rule would otherwise consume them.
+  for (const [noun, key] of Object.entries(ZERO_ARTICLE_NOUNS)) {
+    const word = lex[key];
+    if (!word) continue;
+    rules.push({
+      re: new RegExp('\\b(' + ZERO_ARTICLE_PREPS.join('|') + ')\\s+' + noun + '\\b', 'gi'),
+      build: (m, prep) => prep + ' ' + (/^the\b/i.test(word) ? word : 'the ' + word),
+    });
+  }
+
+  // 2. "a college" / "an exam" - the article has to agree with the new word.
+  for (const [pattern, key, opts = {}] of TERMS) {
+    const word = lex[key];
+    if (!word || pattern.includes(' ')) continue;
+    // A replacement that already carries its own article ("the Deep") cannot
+    // follow "a" - that yields "a the Deep". Drop the original's article and
+    // let the replacement supply its own.
+    if (carriesArticle(word)) {
+      rules.push({
+        re: new RegExp('\\b(a|an)\\s+' + pattern + '\\b', 'gi'),
+        build: (...a) => caseFor(a[a.length - 1], a[a.length - 2], a[0], word),
+      });
+      continue;
+    }
+    rules.push({
+      re: new RegExp('\\b(a|an)\\s+' + pattern + '\\b', 'gi'),
+      build: (m, art) => matchCase(art, articleFor(word)) + ' ' + word,
+    });
+    if (opts.plural) {
+      const pl = pluralise(word);
+      rules.push({ re: new RegExp('\\b' + opts.plural.replace(/ /g, '\\s+') + '\\b', 'gi'), build: (m) => matchCase(m, pl) });
+    }
+  }
+
+  // 3. The generic terms, longest first so phrases beat their parts.
+  for (const [pattern, key, opts = {}] of TERMS) {
+    const word = lex[key];
+    if (!word) continue;
+    if (opts.plural) {
+      const pl = pluralise(word);
+      rules.push({
+        re: new RegExp('\\b' + opts.plural.replace(/ /g, '\\s+') + '\\b', 'gi'),
+        build: (...a) => caseFor(a[a.length - 1], a[a.length - 2], a[0], pl),
+      });
+    }
+    rules.push({
+      re: new RegExp('\\b' + pattern.replace(/[-]/g, '\\-').replace(/ /g, '\\s+') + '\\b', 'gi'),
+      build: (...a) => caseFor(a[a.length - 1], a[a.length - 2], a[0], word),
+    });
+  }
+  return { lex, rules };
+}
+
+export function substitute(text, compiled) {
+  const { rules } = compiled;
+  return segment(text).map(seg => {
+    if (seg.kind === 'code') return seg.text;
+    let s = seg.text;
+    for (const r of rules) s = s.replace(r.re, r.build);
+    return s;
+  }).join('');
+}
+
+// The keys a generated lexicon supplies, with the question each one answers.
+// Sent to the model as the shape to fill, so the prompt stays one small call.
+export const LEXICON_PROMPT_KEYS = [
+  ['institution', 'the proper name of the place the story happens in, with its article if it takes one'],
+  ['institution_kind', 'the common noun for that kind of place, no article'],
+  ['district', 'the grounds or area it occupies'],
+  ['division', 'a social sub-group people belong to'],
+  ['member', 'what an ordinary person here is called'],
+  ['initiate', 'a newcomer who has not been accepted yet'],
+  ['mentor', 'someone who teaches or directs members'],
+  ['staff', 'the people who run the place, collectively'],
+  ['session', 'a single scheduled activity a member attends'],
+  ['program', 'a long-term specialisation a member commits to'],
+  ['module', 'one unit of instruction inside a program'],
+  ['assessment', 'a test of a member\'s ability'],
+  ['standing', 'a member\'s measured reputation or score'],
+  ['prep', 'work done alone outside a session'],
+  ['quarters', 'where a member sleeps'],
+  ['roomshare', 'the person they share it with'],
+  ['commons', 'the open space where members gather'],
+];
+
+export function buildLexiconPrompt(premise) {
+  return [
+    'WORLD PREMISE',
+    String(premise || '').trim() || 'an ordinary place with something underneath',
+    '',
+    'TASK',
+    'Name the vocabulary this world uses for the things listed below.',
+    '',
+    'RULES',
+    '- Reply with ONLY a JSON object. No prose, no markdown, no code fences.',
+    '- Use each KEY below exactly as written, once, with a short string value.',
+    '- These replace the words of a generic institution, so they must fit the premise.',
+    '- Give ordinary nouns, not proper names, EXCEPT for "institution".',
+    '- No articles, EXCEPT "institution" may take one if it reads better ("the Grid").',
+    '- Singular. Keep each under 24 characters.',
+    '',
+    'KEYS',
+    ...LEXICON_PROMPT_KEYS.map(([k, q]) => `${k}: ${q}`),
+  ].join('\n');
+}
+
+// One model call, and a failure is never fatal: the default lexicon is already
+// neutral, so a world with no generated vocabulary still reads as an
+// institution rather than a campus.
+export async function generateLexicon(premise, model) {
+  if (!model || typeof model.ask !== 'function' || !model.available()) {
+    return { lexicon: { ...DEFAULT_LEXICON }, problems: ['no model: using the default lexicon'] };
+  }
+  const problems = [];
+  try {
+    const reply = await model.ask(buildLexiconPrompt(premise), { maxTokens: 420, temperature: 0.9 });
+    const body = String(reply || '');
+    const fenced = body.match(/```(?:json)?\s*([\s\S]*?)```/);
+    const src = fenced ? fenced[1] : body;
+    const start = src.indexOf('{');
+    const end = src.lastIndexOf('}');
+    if (start === -1 || end <= start) throw new Error('no JSON object in the reply');
+    const parsed = JSON.parse(src.slice(start, end + 1));
+    const out = { ...DEFAULT_LEXICON };
+    for (const [key] of LEXICON_PROMPT_KEYS) {
+      const v = parsed[key];
+      if (typeof v !== 'string' || !v.trim()) { problems.push(`${key}: missing`); continue; }
+      const word = v.trim().replace(/^["']|["']$/g, '');
+      if (word.length > 40) { problems.push(`${key}: too long`); continue; }
+      out[key] = word;
+    }
+    return { lexicon: out, problems };
+  } catch (err) {
+    return {
+      lexicon: { ...DEFAULT_LEXICON },
+      problems: [`lexicon generation failed: ${err && err.message ? err.message : String(err)}`],
+    };
+  }
+}
+
+// Installs the substitution on SugarCube's documented passage hook. onProcess
+// receives the passage SOURCE before the wikifier parses it, which is the only
+// place a single hook can reach every passage's prose.
+//
+// `source` may be a function, and that is the point: the lexicon lives in a
+// STORY VARIABLE, so it travels in the save automatically and a reloaded game
+// reads the same words. Installing a captured lexicon instead would make every
+// reload fall back to the default.
+//
+// Compilation is memoised on the lexicon's identity - 25 terms is ~50 RegExp
+// objects, and building them per passage render would be wasteful.
+export function install(config, source) {
+  const previous = config.passages.onProcess;
+  let key = null;
+  let compiled = null;
+  config.passages.onProcess = function (p) {
+    const text = typeof previous === 'function' ? previous.call(this, p) : p.text;
+    let lex;
+    try {
+      lex = typeof source === 'function' ? source() : source;
+    } catch {
+      lex = null;
+    }
+    const next = JSON.stringify(lex || {});
+    if (next !== key) { key = next; compiled = compile(lex || {}); }
+    return substitute(text, compiled);
+  };
+  return config.passages.onProcess;
+}

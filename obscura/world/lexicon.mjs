@@ -163,9 +163,40 @@ export function segment(text) {
     // A macro. Scan to the matching '>>' so `<<if $x > 3>>` is not cut short
     // at the bare '>'.
     if (src.startsWith('<<', i)) {
-      const end = src.indexOf('>>', i + 2);
-      const stop = end === -1 ? src.length : end + 2;
-      code(src.slice(i, stop));
+      // Balanced, not first-match. A label can contain a whole macro of its
+      // own - `<<button "<<highlight x>>! College">>` - and stopping at the
+      // first '>>' cuts that label in half, leaving its tail to be parsed as
+      // loose prose. Counting nesting keeps the macro whole.
+      let depth = 0;
+      let stop = src.length;
+      for (let k = i; k < src.length; k++) {
+        if (src.startsWith('<<', k)) { depth++; k++; continue; }
+        if (src.startsWith('>>', k)) {
+          depth--;
+          if (!depth) { stop = k + 2; break; }
+          k++;
+        }
+      }
+      const macro = src.slice(i, stop);
+      // The LABEL of a link or button is the one part of a macro that is
+      // prose: the player reads it. `<<button "College">>` in StoryCaption is
+      // why the sidebar still said COLLEGE after every passage had been
+      // rewritten - the substitution was skipping the whole macro, label and
+      // all. Measured: 511 such labels, 12 of them carrying the vocabulary.
+      //
+      // Only the FIRST quoted argument, and only when it contains no nested
+      // macro of its own: `<<button "<<highlight x>>! College">>` has markup
+      // inside the label, and splitting on quotes there would cut a macro in
+      // half.
+      const m = /^<<(link|button)\s+"([^"<>]*)"/.exec(macro);
+      if (m) {
+        const head = `<<${m[1]} "`;
+        code(head);
+        out.push({ kind: 'prose', text: m[2] });
+        code(macro.slice(head.length + m[2].length));
+      } else {
+        code(macro);
+      }
       i = stop;
       continue;
     }

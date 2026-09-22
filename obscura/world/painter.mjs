@@ -43,6 +43,9 @@ function hash(s) {
 }
 
 export const pictureKey = (worldId, placeKey, name) => `pic|${worldId}|${placeKey}|${hash(String(name || ''))}`;
+// A map's picture changes when any of its places is renamed.
+export const mapKey = (worldId, block, names = []) => `map|${worldId}|${block}|${hash(names.join('|'))}`;
+export const MAP_FRAME = { w: 600, h: 300, scale: 1, margin: 6 };
 export const lookKey = (worldId, placeKey, name) => `look|${worldId}|${placeKey}|${hash(String(name || ''))}`;
 
 // The first sentence of the premise, short: the look carries the world when
@@ -57,6 +60,17 @@ export function paintPrompt({ look, name, premise } = {}) {
     ? String(look).trim()
     : [name, premiseShort(premise) && `in ${premiseShort(premise)}`].filter(Boolean).join(', ');
   return `${subject}, ${STYLE}`;
+}
+
+// The map is the same island every shipped map is, holding what THIS world's
+// places look like - a few of them, so the picture reads as one place.
+export function mapPrompt({ looks = [], premise } = {}) {
+  const picked = looks.filter(Boolean).slice(0, 4);
+  const holding = picked.length ? `, with ${picked.join('; ')}`
+    : premiseShort(premise) ? `, in ${premiseShort(premise)}` : '';
+  return 'a small world map: a floating island of land seen from above at an angle, isometric pixel art game '
+    + `asset, fields, paths, trees and a few small buildings${holding}, clean dark pixel outlines, flat bright `
+    + 'colours, very wide, centred, plain pure white background';
 }
 
 export function buildLooksPrompt(persona, batch) {
@@ -212,7 +226,7 @@ export function createPainter(deps) {
       const raw = await withTimeout(generate(prompt), timeoutMs);
       const src = raw && typeof raw === 'object' && typeof raw.dataUrl === 'string' ? raw.dataUrl : String(raw || '');
       if (!/^data:image\//.test(src)) throw new Error(`no picture came back: ${src.slice(0, 60)}`);
-      const url = await process(src);
+      const url = await process(src, job);
       if (typeof url !== 'string' || !/^data:image\//.test(url)) throw new Error('the picture could not be processed');
       memo.set(job.key, url);
       await Promise.resolve(cache.put(job.key, url)).catch(() => {});
@@ -249,7 +263,9 @@ export function createPainter(deps) {
 // The browser half of world/pixels.mjs: decode, key out the background, crop
 // to the subject, fit the chassis's 128x112 frame, and store at 2x with square
 // pixels - the framing every shipped room has.
-export async function processPicture(src, doc) {
+export async function processPicture(src, doc, frame = {}) {
+  const FW = frame.w || FRAME_W; const FH = frame.h || FRAME_H;
+  const SC = frame.scale || SCALE; const M = frame.margin ?? 4;
   const img = await new Promise((resolve, reject) => {
     const i = new Image();
     i.onload = () => resolve(i);
@@ -264,17 +280,18 @@ export async function processPicture(src, doc) {
   keyOutBackground(data.data, w, h);
   fctx.putImageData(data, 0, 0);
   const box = alphaBox(data.data, w, h) || { x: 0, y: 0, w, h };
-  const fit = fitInto(box.w, box.h, FRAME_W - 4, FRAME_H - 4);
-  const small = doc.createElement('canvas'); small.width = FRAME_W; small.height = FRAME_H;
+  const fit = fitInto(box.w, box.h, FW - M, FH - M);
+  const small = doc.createElement('canvas'); small.width = FW; small.height = FH;
   const sctx = small.getContext('2d', { willReadFrequently: true });
   sctx.imageSmoothingEnabled = true;
   sctx.imageSmoothingQuality = 'high';
   sctx.drawImage(full, box.x, box.y, box.w, box.h,
-    Math.floor((FRAME_W - fit.w) / 2), Math.floor((FRAME_H - fit.h) / 2), fit.w, fit.h);
-  const sd = sctx.getImageData(0, 0, FRAME_W, FRAME_H);
+    Math.floor((FW - fit.w) / 2), Math.floor((FH - fit.h) / 2), fit.w, fit.h);
+  const sd = sctx.getImageData(0, 0, FW, FH);
   hardenAlpha(sd.data);
   sctx.putImageData(sd, 0, 0);
-  const big = doc.createElement('canvas'); big.width = FRAME_W * SCALE; big.height = FRAME_H * SCALE;
+  if (SC === 1) return small.toDataURL('image/png');
+  const big = doc.createElement('canvas'); big.width = FW * SC; big.height = FH * SC;
   const bctx = big.getContext('2d');
   bctx.imageSmoothingEnabled = false;
   bctx.drawImage(small, 0, 0, big.width, big.height);
@@ -298,9 +315,14 @@ export function installPainter(deps = {}) {
   const vars = () => (SC.State && SC.State.variables) || {};
   const model = deps.model || null;
   const cache = { get: (k) => deps.store.loadPicture(k), put: (k, v) => deps.store.savePicture(k, v) };
+  // A job carries its own frame and resolution: a place is a square room cut
+  // to 128x112, a map a wide island cut to 600x300.
   const painter = createPainter({
-    generate: (prompt) => plugin({ prompt, negativePrompt: NEGATIVE, resolution: RESOLUTION }),
-    process: (src) => (deps.process || processPicture)(src, doc),
+    generate: (prompt) => {
+      const wide = typeof prompt === 'string' && prompt.startsWith('a small world map');
+      return plugin({ prompt, negativePrompt: NEGATIVE, resolution: wide ? '768x512' : RESOLUTION });
+    },
+    process: (src, job) => (deps.process || processPicture)(src, doc, job && job.frame),
     cache,
     isIdle: () => !model || typeof model.idle !== 'function' || model.idle(),
     ...(deps.painterOptions || {}),
@@ -360,15 +382,49 @@ export function installPainter(deps = {}) {
       const p = info(e);
       if (p) painter.lookup(keyOf(p)).then((u) => { if (!u) painter.request(jobFor(p, i + 1)); });
     });
+    // this map, after the places around the player
+    painter.lookup(mapKeyOf(here.map)).then((u) => { if (!u) painter.request(mapJobFor(here.map, 20)); });
   };
+  // Maps: one per map block, painted last, shown when the Maps dialog opens.
+  const blocks = () => Object.entries((SC.setup && SC.setup.ob_maps) || {})
+    .filter(([, m]) => m && m.nodes && Object.keys(m.nodes).length).map(([k]) => k);
+  const namesIn = (block) => [...places().values()].filter(p => p.map === block)
+    .map(p => displayName(vars(), p.key, p.name || p.key));
+  const mapKeyOf = (block) => mapKey(vars()[WORLD_ID_KEY], block, namesIn(block));
+  const mapJobFor = (block, priority) => ({
+    key: mapKeyOf(block),
+    priority,
+    frame: MAP_FRAME,
+    prompt: async () => {
+      const members = [...places().values()].filter(p => p.map === block)
+        .map(p => ({ key: p.key, name: displayName(vars(), p.key, p.name || p.key) }));
+      const looks = [];
+      for (const p of members.slice(0, 4)) looks.push(await looks4(p, members));
+      return mapPrompt({ looks, premise: vars().obscuraPremise });
+    },
+  });
+  const looks4 = (place, members) => looks.lookFor(place, members);
+  const showMap = (block, url) => {
+    for (const img of doc.querySelectorAll(`.ob-map img[data-ob-map="${String(block).replace(/["\\]/g, '')}"]`)) {
+      paintInto(img, url);
+    }
+  };
+  const showMaps = () => {
+    if (!vars()[WORLD_ID_KEY]) return;
+    for (const b of blocks()) painter.lookup(mapKeyOf(b)).then((u) => { if (u) showMap(b, u); });
+  };
+
   painter.onPainted((key, url) => {
     const here = info(vars().location);
     if (here && keyOf(here) === key) { lastShown = [here.key, url]; show(here.key, url); }
+    for (const b of blocks()) if (mapKeyOf(b) === key) showMap(b, url);
   });
 
   const $ = deps.jQuery !== undefined ? deps.jQuery : (typeof window !== 'undefined' ? window.jQuery : null);
-  if ($) $(doc).on(':passageend', onPassage);
-  else if (doc.addEventListener) doc.addEventListener(':passageend', onPassage);
+  if ($) { $(doc).on(':passageend', onPassage); $(doc).on(':dialogopened', showMaps); } else if (doc.addEventListener) {
+    doc.addEventListener(':passageend', onPassage);
+    doc.addEventListener(':dialogopened', showMaps);
+  }
 
   // The caption can be redrawn without a new passage. Put the picture back.
   const caption = doc.getElementById && doc.getElementById('story-caption');
@@ -377,7 +433,7 @@ export function installPainter(deps = {}) {
       .observe(caption, { childList: true, subtree: true });
   }
 
-  installedPainter = { painter, looks, onPassage };
+  installedPainter = { painter, looks, onPassage, showMaps };
   if (typeof window !== 'undefined') window.ObscuraPainter = installedPainter;
   return installedPainter;
 }

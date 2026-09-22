@@ -14,7 +14,10 @@ import { sharedStore } from './store.mjs';
 import { AiGenerator } from './ai-generator.mjs';
 import { sharedModel } from './ai-text.mjs';
 import { OPENING_SEEDS } from './tiers.mjs';
-import { generateLexicon, DEFAULT_LEXICON, install as installLexicon } from './lexicon.mjs';
+import {
+  generateLexicon, DEFAULT_LEXICON, install as installLexicon,
+  compile as compileLexicon, substitute as substituteLexicon,
+} from './lexicon.mjs';
 import { createLivingWorld, installLivingWorld, replayGrowth, GROWTH_KEY } from './living.mjs';
 import { WORLD_ID_KEY, newWorldId, persistWorld, createDurable } from './durable.mjs';
 import { installHub } from './hub.mjs';
@@ -360,6 +363,9 @@ const installedOn = new WeakSet();
 export function installHubHook(deps = {}) {
   try {
     return installHub({
+      // A map's own name is the original's ("Campus"); its title goes through
+      // this world's vocabulary, as the passages' text does.
+      mapName: (key, map) => substituteLexicon(String((map && map.name) || key), compileLexicon(getLexicon(deps))),
       notice: () => (worldMissing(deps)
         ? 'This world was built in another browser, or this browser has forgotten it. Its places and people are placeholders here.'
         : null),

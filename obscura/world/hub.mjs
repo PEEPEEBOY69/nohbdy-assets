@@ -172,6 +172,39 @@ export function hubHtml(setup, V, opts = {}) {
   return lines.join('\n');
 }
 
+// The Maps screen, for a generated world. The chassis's screen showed each
+// map's picture under the ORIGINAL map's name ("Campus", "Town") and nothing
+// else - in a world with no campus. This shows each map with the places in
+// it, under the names they have in this world, and where the player is. The
+// picture starts as the shipped map; the painter swaps in one painted for this
+// world, matching on data-ob-map.
+export function mapsHtml(setup, V = {}, opts = {}) {
+  const maps = (setup && setup.ob_maps) || {};
+  const blocks = Object.entries(maps)
+    .filter(([, m]) => m && m.nodes && typeof m.nodes === 'object' && Object.keys(m.nodes).length);
+  if (!blocks.length) return '<div class="ob-maps-empty">This world has no map yet.</div>';
+  const here = V && V.location;
+  const out = [];
+  for (const [key, map] of blocks) {
+    const title = typeof opts.mapName === 'function' ? opts.mapName(key, map) : (map.name || key);
+    out.push('<div class="ob-map" style="margin:0 0 1.4em">');
+    out.push(`<div class="ob-map-title" style="margin:0 0 0.4em"><b>${esc(title)}</b></div>`);
+    const file = map.bigimg || map.img;
+    if (opts.pictureBase && file) {
+      out.push(`<img data-ob-map="${esc(key)}" src="${esc(`${opts.pictureBase}${file}.png`)}" alt=""`
+        + ' style="width:100%;height:auto;image-rendering:pixelated">');
+    }
+    out.push('<div class="ob-map-places" style="columns:12em;column-gap:1.5em;margin-top:0.5em">');
+    for (const [k, node] of Object.entries(map.nodes)) {
+      if (!node || typeof node !== 'object') continue;
+      const name = esc(displayName(V, k, node.name || k));
+      out.push(k === here ? `<div><b>${name}</b> - you are here</div>` : `<div>${name}</div>`);
+    }
+    out.push('</div></div>');
+  }
+  return out.join('');
+}
+
 // The engine-facing half. Installed onto `setup` so a passage can call it by
 // name, which is the only thing passage markup can do.
 export function installHub(deps = {}) {
@@ -189,6 +222,7 @@ export function installHub(deps = {}) {
     pictureBase: pictureBase(),
     notice: typeof deps.notice === 'function' ? deps.notice() : null,
   });
+  setup.ob_obscura_maps = () => mapsHtml(setup, V(), { pictureBase: pictureBase(), mapName: deps.mapName });
 
   // $locationblock is the MAP a location belongs to. The chassis reads it 27
   // times - for the location picture, who is here, fast travel - and normally

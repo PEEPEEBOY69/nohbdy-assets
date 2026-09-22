@@ -18,6 +18,8 @@ import { generateLexicon, DEFAULT_LEXICON, install as installLexicon } from './l
 import { createLivingWorld, installLivingWorld } from './living.mjs';
 import { installHub } from './hub.mjs';
 import { installEvents } from './events.mjs';
+import { generatePlaceNames, installPlaceNames, STATE_KEY as PLACES_KEY } from './places.mjs';
+import { buildPersona, faultsIn } from './persona.mjs';
 
 // Harvests the chassis's own tables out of the running engine. The payload
 // already ships them, so generation downloads nothing.
@@ -117,6 +119,21 @@ export async function startBuild(premise, progressId, done, deps = {}) {
     }
 
     applyWorld(setup, built.world);
+
+    // The geography. The map is carried whole, so without this every place
+    // keeps the original's name - Blodgett Gymnasium in a rain-dark city.
+    // Names are written into a story variable and only what is DISPLAYED is
+    // routed through them; the nodes themselves are never touched.
+    if (model.available()) {
+      say('Naming places...');
+      const places = await generatePlaceNames({
+        setup, model, faultsIn, persona: buildPersona(chosen, lex.lexicon),
+      });
+      if (places.problems.length) console.warn('Obscura places:', places.problems);
+      const st = deps.state
+        || (typeof window !== 'undefined' && window.SugarCube && window.SugarCube.State);
+      if (st && st.variables) st.variables[PLACES_KEY] = places.names;
+    }
 
     // A small, bounded summary of what this build actually did. Not the world
     // itself - that is megabytes and would pin it in memory for the session.
@@ -234,6 +251,18 @@ export function installHubHook(deps = {}) {
 // Pruning has to happen before anything can pick an event, and a restored save
 // needs it as much as a new game does. Idempotent, so running it twice costs
 // nothing.
+// The display route for place names. At boot, so a restored save shows the
+// names it was built with before its first passage renders.
+export function installPlacesHook(deps = {}) {
+  try {
+    const setup = deps.setup
+      || (typeof window !== 'undefined' && window.SugarCube && window.SugarCube.setup);
+    const state = deps.state
+      || (typeof window !== 'undefined' && window.SugarCube && window.SugarCube.State);
+    return installPlaceNames(setup, () => state && state.variables);
+  } catch { return false; }
+}
+
 export function installEventsHook(deps = {}) {
   try { return installEvents(deps); } catch { return null; }
 }

@@ -20,6 +20,8 @@
 // there cannot be a passage per location - a single hub sets V.location itself
 // and reads everything else from the world.
 
+import { displayName } from './places.mjs';
+
 export const MAX_PEOPLE_SHOWN = 8;
 
 // The world's places, as a flat map of node name -> node, across every map
@@ -104,7 +106,7 @@ export function hubHtml(setup, V, opts = {}) {
   const lines = [];
 
   const name = here
-    ? (here.name || here.key)
+    ? displayName(V, here.key, here.name || here.key)
     : (opts.unknownName || 'somewhere you do not recognise');
   lines.push(`<div class="ob-hub-place"><b>${esc(name)}</b></div>`);
 
@@ -123,7 +125,7 @@ export function hubHtml(setup, V, opts = {}) {
   if (exits.length) {
     lines.push('<div class="ob-hub-exits">');
     for (const e of exits) {
-      const label = (places.get(e).name || e);
+      const label = displayName(V, e, places.get(e).name || e);
       // The target is always the hub; the destination travels in a variable,
       // because a generated place has no passage of its own.
       lines.push(`<<link "${esc(label)}">><<run setup.ob_obscura_go("${esc(e)}")>><</link>>`);
@@ -152,10 +154,21 @@ export function installHub(deps = {}) {
 
   setup.ob_obscura_hub = () => hubHtml(setup, V());
 
+  // $locationblock is the MAP a location belongs to. The chassis reads it 27
+  // times - for the location picture, who is here, fast travel - and normally
+  // derives it from a passage's `locblock<Name>` tag, which the hub cannot
+  // have because its places are generated. Unset, the location-picture branch
+  // in StoryCaption never ran, so every place in the game had an empty frame.
+  const setBlock = (key) => {
+    const place = placesIn(setup).get(key);
+    if (place) V().locationblock = place.map;
+  };
+
   setup.ob_obscura_go = (to) => {
     const places = placesIn(setup);
     if (!places.has(to)) return false;
     V().location = to;
+    setBlock(to);
     try {
       if (setup.ob_time && typeof setup.ob_time.advance_time === 'function') {
         setup.ob_time.advance_time(deps.travelMinutes ?? 15);
@@ -181,6 +194,7 @@ export function installHub(deps = {}) {
       const start = startingPlace(setup);
       if (start) v.location = start;
     }
+    if (v.location) setBlock(v.location);
     return v.location || null;
   };
 

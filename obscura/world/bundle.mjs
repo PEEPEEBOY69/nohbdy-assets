@@ -9,10 +9,11 @@ export { assignTiers, openingTables, TIER, OPENING_SEEDS } from './tiers.mjs';
 export { createStore, browserIdb, STORE_NAMES, DB_NAME } from './store.mjs';
 export {
   startBuild, harvestTables, loadKeySets,
-  setLexicon, getLexicon, installLexiconHook, installHubHook, installEventsHook,
+  setLexicon, getLexicon, installLexiconHook, installHubHook, installEventsHook, installPlacesHook,
   loadAssetManifest,
 } from './flow.mjs';
 export { hubHtml, placesIn, startingPlace, exitsOf, installHub } from './hub.mjs';
+export { placeRoster, generatePlaceNames, installPlaceNames, displayName } from './places.mjs';
 export {
   pruneDanglingEvents, registerAuthoredEvent, authoredEventText, freeSlot,
   EVENT_SLOTS, slotNames,

@@ -8,6 +8,8 @@ export { buildWorld, referenceGraph, applyWorld } from './builder.mjs';
 export { assignTiers, openingTables, TIER, OPENING_SEEDS } from './tiers.mjs';
 export { createStore, browserIdb, STORE_NAMES, DB_NAME } from './store.mjs';
 export { startBuild, harvestTables, loadKeySets } from './flow.mjs';
+export { AiGenerator, findPlaceholders, isPlaceholder, singleWordAt } from './ai-generator.mjs';
+export { createModel, estimateTokens, PROMPT_TOKEN_BUDGET } from './ai-text.mjs';
 export {
   newMemory, remember, compact, contextFor, feelTowards,
   MEMORY_KEEP_RECENT, MEMORY_WEIGHT_KEEP,

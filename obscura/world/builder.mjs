@@ -38,6 +38,10 @@ export async function buildWorld(tables, opts = {}) {
   const world = {};
   const machineryKeys = {};
   const problems = [];
+  // Text failures are tracked apart from structural ones on purpose. A field
+  // that kept its placeholder is a cosmetic gap in a playable world; a
+  // structural problem means the world must not reach the engine at all.
+  const textProblems = [];
   let done = 0;
 
   for (const name of wanted) {
@@ -77,8 +81,11 @@ export async function buildWorld(tables, opts = {}) {
           value: v,
           keepKeys: keepKeys(`${name}.${k}`),
         });
-        const res = generator.generate(spec);
+        // Awaited: the AI generator is async, and an un-awaited promise
+      // would be stored as the table itself.
+      const res = await generator.generate(spec);
         for (const p of res.problems) problems.push(`${name}.${k}: ${p}`);
+        for (const p of (res.textProblems || [])) textProblems.push(`${name}.${k}: ${p}`);
         inner[k] = res.data;
       }
       if (Object.keys(inner).length) world[name] = inner;
@@ -90,8 +97,11 @@ export async function buildWorld(tables, opts = {}) {
         keepKeys: keepKeys(name),
         verbatimKeys: verbatimKeys(name),
       });
-      const res = generator.generate(spec);
+      // Awaited: the AI generator is async, and an un-awaited promise
+      // would be stored as the table itself.
+      const res = await generator.generate(spec);
       for (const p of res.problems) problems.push(`${name}: ${p}`);
+      for (const p of (res.textProblems || [])) textProblems.push(p);
       world[name] = res.data;
     }
 
@@ -106,7 +116,7 @@ export async function buildWorld(tables, opts = {}) {
   const remap = remapWorld(world, tables, { keySpace: machineryKeys });
   problems.push(...remap.problems);
 
-  return { world, problems, remapped: remap.remapped, tiers };
+  return { world, problems, textProblems, remapped: remap.remapped, tiers };
 }
 
 // Writes a generated world into the live `setup` object.

@@ -11,6 +11,8 @@
 // The passage is now one <<run>>. Everything below is reachable from tests.
 import { buildWorld, applyWorld } from './builder.mjs';
 import { createStore } from './store.mjs';
+import { AiGenerator } from './ai-generator.mjs';
+import { createModel } from './ai-text.mjs';
 import { OPENING_SEEDS } from './tiers.mjs';
 
 // Harvests the chassis's own tables out of the running engine. The payload
@@ -58,7 +60,22 @@ export async function startBuild(premise, progressId, done, deps = {}) {
     const tables = deps.tables || harvestTables(setup);
     const chosen = premise || 'an ordinary town with something underneath';
 
+    // The model writes the world's text when the plugin is there, and the
+    // deterministic stub carries it when it is not. Same interface either way -
+    // that was the point of building the contract before the model existed.
+    // The PAGE hands the plugin in; the module never reaches for a global.
+    // `ai` is created by the lists panel's {import:ai-text-plugin} in page
+    // scope, and a bare `ai` inside an ES module is a ReferenceError, not a
+    // fallback. The house rule is the same for any CDN global: never
+    // dereference one at module top level - it cost Nohbdy Hub a live mobile
+    // crash. So the passage passes it and this only decides what to do with it.
+    const model = deps.model || createModel({ plugin: deps.plugin, scope: deps.scope });
+    const generator = deps.generator
+      || (model.available() ? new AiGenerator({ model }) : undefined);
+    if (generator) say('Writing your world...');
+
     const built = await buildWorld(tables, {
+      generator,
       premise: chosen,
       seed: chosen,
       readDuringWorldgen: deps.seeds || OPENING_SEEDS,
@@ -69,6 +86,12 @@ export async function startBuild(premise, progressId, done, deps = {}) {
 
     if (built.problems.length) {
       console.error('Obscura world problems:', built.problems.slice(0, 20));
+    }
+    // Text failures are reported and never fatal: a world with some
+    // placeholders left is playable, a world that failed to build is not.
+    if (built.textProblems && built.textProblems.length) {
+      console.warn(`Obscura: ${built.textProblems.length} field(s) kept their placeholder`,
+        built.textProblems.slice(0, 10));
     }
 
     applyWorld(setup, built.world);

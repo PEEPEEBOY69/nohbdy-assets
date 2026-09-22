@@ -8,6 +8,7 @@
 import { specFor, StubGenerator, remapWorld, selfIndexKeys, findWeightedReferences } from '../tools/generator.mjs';
 import { pinAssets } from './assets.mjs';
 import { pinMapRegions } from './mapgrid.mjs';
+import { enforceSingletons } from './invariants.mjs';
 import { findReferences } from '../tools/schema-refs.mjs';
 import { classify, isFunctionValue } from '../tools/schema.mjs';
 import { assignTiers, TIER } from './tiers.mjs';
@@ -139,10 +140,19 @@ export async function buildWorld(tables, opts = {}) {
   // needs and generation cannot provide.
   const regions = pinMapRegions(world, tables);
 
+  // Singleton flags: a boolean true in exactly one record because it marks the
+  // one that is special. 252 of them in the chassis data. The generator sees
+  // an optional boolean and assigns it per record, so a generated world gets
+  // three player residences or none - and with none, the engine never runs
+  // `if (rinfo.pc)`, $pcroommate stays undefined, and the quickstart throws
+  // before the player can reach the game.
+  const singletons = enforceSingletons(world, tables);
+
   return {
     world, problems, textProblems, remapped: remap.remapped, tiers,
     pinnedAssets: assets.pinned.length,
     mapsLaidOut: regions.laidOut,
+    singletonsEnforced: singletons.applied.length,
   };
 }
 

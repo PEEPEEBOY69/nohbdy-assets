@@ -19,6 +19,7 @@ export {
 } from './events.mjs';
 export { pinAssets, looksLikeAsset, groupManifest, familyOf } from './assets.mjs';
 export { pinMapRegions, gridFor, MAP_W, MAP_H } from './mapgrid.mjs';
+export { enforceSingletons, singletonFieldsOf } from './invariants.mjs';
 export {
   buildPersona, faultsIn, stripPackaging, OUTPUT_RULES,
 } from './persona.mjs';

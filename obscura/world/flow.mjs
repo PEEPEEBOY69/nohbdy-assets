@@ -134,6 +134,7 @@ export async function startBuild(premise, progressId, done, deps = {}) {
         pinnedAssets: built.pinnedAssets || 0,
         mapsLaidOut: built.mapsLaidOut || [],
         singletonsEnforced: built.singletonsEnforced || 0,
+        referencesResolved: built.referencesResolved || 0,
         tables: Object.keys(built.world).length,
         problems: built.problems.length,
         textProblems: (built.textProblems || []).length,

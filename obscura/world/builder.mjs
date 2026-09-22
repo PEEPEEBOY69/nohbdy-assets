@@ -9,6 +9,7 @@ import { specFor, StubGenerator, remapWorld, selfIndexKeys, findWeightedReferenc
 import { pinAssets } from './assets.mjs';
 import { pinMapRegions } from './mapgrid.mjs';
 import { enforceSingletons } from './invariants.mjs';
+import { resolveReferences } from './references.mjs';
 import { findReferences } from '../tools/schema-refs.mjs';
 import { classify, isFunctionValue } from '../tools/schema.mjs';
 import { assignTiers, TIER } from './tiers.mjs';
@@ -148,11 +149,23 @@ export async function buildWorld(tables, opts = {}) {
   // before the player can reach the game.
   const singletons = enforceSingletons(world, tables);
 
+  // Fields whose value is the NAME OF SOMETHING ELSE. 98 of them, detected
+  // from the originals because only they know the field was ever a pointer.
+  // ob_outfits.*.items[].item names a garment in `clothes` in 133 of 133
+  // samples; the generator wrote prose into it, build_outfit looked that up,
+  // got undefined and read .category off it, and character creation could not
+  // finish.
+  const refs2 = resolveReferences(world, tables);
+  for (const p of [...new Set(refs2.unresolved)].slice(0, 10)) {
+    problems.push(`unresolvable reference field: ${p}`);
+  }
+
   return {
     world, problems, textProblems, remapped: remap.remapped, tiers,
     pinnedAssets: assets.pinned.length,
     mapsLaidOut: regions.laidOut,
     singletonsEnforced: singletons.applied.length,
+    referencesResolved: refs2.resolved.length,
   };
 }
 

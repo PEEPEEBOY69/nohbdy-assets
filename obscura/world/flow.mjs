@@ -124,6 +124,7 @@ export async function startBuild(premise, progressId, done, deps = {}) {
         lexicon: lex.lexicon,
         lexiconProblems: lex.problems,
         pinnedAssets: built.pinnedAssets || 0,
+        mapsLaidOut: built.mapsLaidOut || [],
         tables: Object.keys(built.world).length,
         problems: built.problems.length,
         textProblems: (built.textProblems || []).length,

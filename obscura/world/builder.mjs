@@ -7,6 +7,7 @@
 // stubs before a model existed.
 import { specFor, StubGenerator, remapWorld, selfIndexKeys, findWeightedReferences } from '../tools/generator.mjs';
 import { pinAssets } from './assets.mjs';
+import { pinMapRegions } from './mapgrid.mjs';
 import { findReferences } from '../tools/schema-refs.mjs';
 import { classify, isFunctionValue } from '../tools/schema.mjs';
 import { assignTiers, TIER } from './tiers.mjs';
@@ -130,9 +131,18 @@ export async function buildWorld(tables, opts = {}) {
     : { pinned: [], unmatched: [] };
   for (const p of assets.unmatched) problems.push(`unpinned asset reference: ${p}`);
 
+  // Map regions are the same problem one level down. Pinning the map IMAGE
+  // made the map appear; the <area> polygons and marker positions are still
+  // generated numbers, so they overlap, leave gaps, fall outside the picture,
+  // and put one place's pin inside another's region. Laid out on a grid
+  // instead, which is the only way to guarantee the three things the engine
+  // needs and generation cannot provide.
+  const regions = pinMapRegions(world, tables);
+
   return {
     world, problems, textProblems, remapped: remap.remapped, tiers,
     pinnedAssets: assets.pinned.length,
+    mapsLaidOut: regions.laidOut,
   };
 }
 

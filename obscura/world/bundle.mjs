@@ -10,13 +10,22 @@ export { createStore, browserIdb, STORE_NAMES, DB_NAME } from './store.mjs';
 export {
   startBuild, harvestTables, loadKeySets,
   setLexicon, getLexicon, installLexiconHook, installHubHook, installEventsHook, installPlacesHook,
-  loadAssetManifest,
+  loadAssetManifest, installWorldRestore, startLivingWorld, markWorldApplied, worldMissing,
+  installPainterHook,
 } from './flow.mjs';
-export { hubHtml, placesIn, startingPlace, exitsOf, installHub } from './hub.mjs';
+export {
+  createPainter, createLooks, installPainter, paintPrompt, buildLooksPrompt, parseLooks,
+  pictureKey, lookKey, processPicture, STYLE as PAINT_STYLE, NEGATIVE as PAINT_NEGATIVE,
+} from './painter.mjs';
+export { keyOutBackground, alphaBox, fitInto, hardenAlpha, FRAME_W, FRAME_H } from './pixels.mjs';
+export {
+  WORLD_ID_KEY, newWorldId, persistWorld, loadWorld, createDurable,
+} from './durable.mjs';
+export { hubHtml, placesIn, startingPlace, exitsOf, installHub, placePictureName } from './hub.mjs';
 export { placeRoster, generatePlaceNames, installPlaceNames, displayName } from './places.mjs';
 export {
   pruneDanglingEvents, registerAuthoredEvent, authoredEventText, freeSlot,
-  EVENT_SLOTS, slotNames,
+  EVENT_SLOTS, slotNames, restoreAuthoredEvents,
 } from './events.mjs';
 export { pinAssets, looksLikeAsset, groupManifest, familyOf } from './assets.mjs';
 export { pinMapRegions, gridFor, MAP_W, MAP_H } from './mapgrid.mjs';
@@ -27,6 +36,7 @@ export {
 } from './persona.mjs';
 export {
   createLivingWorld, installLivingWorld, TASKS, IDLE_CALLS_PER_DAY,
+  replayGrowth, cloneRecord, GROWTH_KEY,
 } from './living.mjs';
 export {
   DEFAULT_LEXICON, TERMS, LEXICON_PROMPT_KEYS,
@@ -34,7 +44,7 @@ export {
   generateLexicon, install as installLexicon,
 } from './lexicon.mjs';
 export { AiGenerator, findPlaceholders, isPlaceholder, singleWordAt } from './ai-generator.mjs';
-export { createModel, estimateTokens, PROMPT_TOKEN_BUDGET } from './ai-text.mjs';
+export { createModel, sharedModel, estimateTokens, PROMPT_TOKEN_BUDGET } from './ai-text.mjs';
 export {
   newMemory, remember, compact, contextFor, feelTowards,
   MEMORY_KEEP_RECENT, MEMORY_WEIGHT_KEEP,

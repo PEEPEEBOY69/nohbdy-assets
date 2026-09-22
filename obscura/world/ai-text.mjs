@@ -101,3 +101,16 @@ export function createModel(opts = {}) {
     },
   };
 }
+
+// One model per plugin function for the whole page. The build, the living
+// world and the painter each need the text model, and two models would be two
+// queues calling one plugin that breaks when calls overlap. A WeakMap, so a
+// plugin that goes away takes its queue with it.
+const shared = new WeakMap();
+
+export function sharedModel(opts = {}) {
+  const plugin = opts.plugin || resolvePlugin(opts.scope);
+  if (typeof plugin !== 'function') return createModel({ ...opts, plugin: null });
+  if (!shared.has(plugin)) shared.set(plugin, createModel({ ...opts, plugin }));
+  return shared.get(plugin);
+}

@@ -12,14 +12,18 @@
 import { buildWorld, applyWorld } from './builder.mjs';
 import { createStore } from './store.mjs';
 import { AiGenerator } from './ai-generator.mjs';
-import { createModel } from './ai-text.mjs';
+import { sharedModel } from './ai-text.mjs';
 import { OPENING_SEEDS } from './tiers.mjs';
 import { generateLexicon, DEFAULT_LEXICON, install as installLexicon } from './lexicon.mjs';
-import { createLivingWorld, installLivingWorld } from './living.mjs';
+import { createLivingWorld, installLivingWorld, replayGrowth, GROWTH_KEY } from './living.mjs';
+import { WORLD_ID_KEY, newWorldId, persistWorld, createDurable } from './durable.mjs';
 import { installHub } from './hub.mjs';
-import { installEvents } from './events.mjs';
+import {
+  installEvents, restoreAuthoredEvents, pruneDanglingEvents, STATE_KEY as EVENTS_KEY,
+} from './events.mjs';
 import { generatePlaceNames, installPlaceNames, STATE_KEY as PLACES_KEY } from './places.mjs';
 import { buildPersona, faultsIn } from './persona.mjs';
+import { installPainter } from './painter.mjs';
 
 // Harvests the chassis's own tables out of the running engine. The payload
 // already ships them, so generation downloads nothing.
@@ -76,7 +80,9 @@ export async function startBuild(premise, progressId, done, deps = {}) {
     // fallback. The house rule is the same for any CDN global: never
     // dereference one at module top level - it cost Nohbdy Hub a live mobile
     // crash. So the passage passes it and this only decides what to do with it.
-    const model = deps.model || createModel({ plugin: deps.plugin, scope: deps.scope });
+    // SHARED, not created: the living world and the painter use the same
+    // plugin, and two queues would overlap calls the plugin cannot take.
+    const model = deps.model || sharedModel({ plugin: deps.plugin, scope: deps.scope });
 
     // The vocabulary comes FIRST, and before any table text, for two reasons.
     // It is one cheap call that decides how 366 substitutions across 89
@@ -160,28 +166,46 @@ export async function startBuild(premise, progressId, done, deps = {}) {
       };
     }
 
+    // The world itself goes to IndexedDB under a new id, and the id goes in
+    // the save. `setup` is rebuilt from the chassis on every page load, so
+    // without this a reload put the save back on the placeholder tables.
+    // A world starts with nothing grown and no authored events of its own.
+    const st = deps.state
+      || (typeof window !== 'undefined' && window.SugarCube && window.SugarCube.State);
+    const vars = st && st.variables;
+    const worldId = deps.worldId || newWorldId();
+    if (vars) {
+      vars[WORLD_ID_KEY] = worldId;
+      vars[GROWTH_KEY] = [];
+      vars[EVENTS_KEY] = {};
+    }
+    markWorldApplied(worldId);
     const store = deps.store || createStore({});
-    await store.saveWorld(deps.slot || 'slot1', {
-      premise: chosen,
-      lexicon: lex.lexicon,
-      tables: Object.keys(built.world).length,
-      builtAt: Date.now(),
-    });
+    try {
+      const saved = await persistWorld(store, worldId, built.world, {
+        premise: chosen, lexicon: lex.lexicon, builtAt: Date.now(),
+      });
+      built.persisted = { worldId, tables: saved.length };
+    } catch (err) {
+      // Playable now, gone on reload - which the player must be told, not
+      // discover.
+      built.persisted = { worldId, error: String(err && err.message ? err.message : err) };
+      console.warn('Obscura: this world could not be stored in the browser and will not survive a reload', err);
+    }
 
     // The world keeps being written after this returns. Only started when a
     // model is actually present: the stub path builds a complete world and
     // then stays exactly as built, which is the correct behaviour for it.
     if (model.available()) {
-      const living = createLivingWorld({
+      startLivingWorld({
+        ...deps,
         model,
         setup,
-        premise: chosen,
-        lexicon: lex.lexicon,
+        state: st,
+        premise: () => (vars && vars.obscuraPremise) || chosen,
+        lexicon: () => getLexicon(deps),
         callsPerDay: deps.idleCallsPerDay,
       });
-      if (installLivingWorld(living, deps)) {
-        if (typeof window !== 'undefined') window.ObscuraLiving = living;
-      }
     }
 
     say('Ready.');
@@ -210,6 +234,90 @@ export async function loadAssetManifest(base, fetchFn) {
   } catch {
     return [];
   }
+}
+
+// ONE living world per page. It is started after a build and again when a
+// save's world is restored, and both can happen in one session.
+let livingWorld = null;
+
+export function startLivingWorld(deps = {}) {
+  if (livingWorld) return livingWorld;
+  const world = createLivingWorld(deps);
+  if (installLivingWorld(world, deps)) {
+    livingWorld = world;
+    if (typeof window !== 'undefined') window.ObscuraLiving = world;
+  }
+  return world;
+}
+
+// The restore side of world/durable.mjs, installed at boot. A build marks its
+// world as applied so the hook does not load back what is already in `setup`;
+// the mark is kept here in case the build finishes before the hook exists.
+let durable = null;
+let builtWorldId = null;
+
+export function markWorldApplied(id) {
+  builtWorldId = id;
+  if (durable) durable.markApplied(id);
+}
+
+export function installWorldRestore(deps = {}) {
+  if (durable) return durable;
+  const SC = deps.SugarCube || (typeof window !== 'undefined' ? window.SugarCube : null);
+  if (!SC && !deps.setup) return null;
+  const setupOf = () => deps.setup || (SC && SC.setup);
+  const varsOf = () => (deps.state || (SC && SC.State) || {}).variables;
+  const has = deps.hasPassage
+    || ((name) => { try { return !!(SC && SC.Story && SC.Story.has(name)); } catch { return false; } });
+  durable = createDurable({
+    store: deps.store || createStore({}),
+    setup: setupOf,
+    state: varsOf,
+    apply: applyWorld,
+    afterApply: ({ setup, vars }) => {
+      // A restored world can carry event records the shipped passages do not
+      // have, and the save's own additions must go back on top of it.
+      const pruned = pruneDanglingEvents(setup, has);
+      const events = restoreAuthoredEvents(setup, vars);
+      const grown = replayGrowth(setup, vars && vars[GROWTH_KEY]);
+      const plugin = deps.plugin || null;
+      if (plugin) {
+        startLivingWorld({
+          ...deps,
+          model: sharedModel({ plugin }),
+          setup,
+          state: deps.state || (SC && SC.State),
+          premise: () => (varsOf() || {}).obscuraPremise || '',
+          lexicon: () => getLexicon(deps),
+        });
+      }
+      return { pruned: pruned.removed, events, grown };
+    },
+    rerender: deps.rerender || (() => { try { SC.Engine.show(); } catch { /* nothing on screen yet */ } }),
+    reload: deps.reload || (() => { if (typeof window !== 'undefined') window.location.reload(); }),
+  });
+  if (builtWorldId) durable.markApplied(builtWorldId);
+
+  const report = (r) => {
+    if (r && r.status === 'restored') console.info('Obscura: world restored', r);
+    if (r && r.status === 'missing') console.warn('Obscura: this save\'s world is not stored in this browser', r);
+    return r;
+  };
+  const check = () => durable.ensure().then(report, (err) => console.error('Obscura: world restore failed', err));
+  const $ = deps.jQuery || (typeof window !== 'undefined' ? window.jQuery || window.$ : null);
+  const doc = deps.document || (typeof document !== 'undefined' ? document : null);
+  if ($ && doc) $(doc).on(':passagedisplay', check);
+  else if (doc && doc.addEventListener) doc.addEventListener(':passagedisplay', check);
+  durable.firstCheck = check();
+  return durable;
+}
+
+// For the hub: true when the save names a world this browser does not have.
+export function worldMissing(deps = {}) {
+  if (!durable) return false;
+  const SC = deps.SugarCube || (typeof window !== 'undefined' ? window.SugarCube : null);
+  const vars = (deps.state || (SC && SC.State) || {}).variables;
+  return !!(vars && vars[WORLD_ID_KEY] && durable.missing().includes(vars[WORLD_ID_KEY]));
 }
 
 export function setLexicon(lexicon, deps = {}) {
@@ -245,7 +353,35 @@ const installedOn = new WeakSet();
 // build, because a RESTORED save arrives with a world already in state and
 // still needs setup.ob_obscura_* to exist before its passage renders.
 export function installHubHook(deps = {}) {
-  try { return installHub(deps); } catch { return false; }
+  try {
+    return installHub({
+      notice: () => (worldMissing(deps)
+        ? 'This world was built in another browser, or this browser has forgotten it. Its places and people are placeholders here.'
+        : null),
+      ...deps,
+    });
+  } catch { return false; }
+}
+
+// Perchance paints each place for this world (world/painter.mjs). Installed at
+// boot beside the restore hook; `plugin` is the lists panel's textToImage and
+// `textPlugin` its ai, whose SHARED queue the looks use.
+export function installPainterHook(deps = {}) {
+  try {
+    if (typeof deps.plugin !== 'function') return null;
+    const SC = deps.SugarCube || (typeof window !== 'undefined' ? window.SugarCube : null);
+    const vars = () => ((deps.state || (SC && SC.State) || {}).variables || {});
+    return installPainter({
+      ...deps,
+      store: deps.store || createStore({}),
+      model: deps.model || (typeof deps.textPlugin === 'function' ? sharedModel({ plugin: deps.textPlugin }) : null),
+      persona: () => buildPersona(vars().obscuraPremise || '', getLexicon(deps)),
+      faultsIn,
+    });
+  } catch (err) {
+    console.warn('Obscura: the painter could not start', err);
+    return null;
+  }
 }
 
 // Pruning has to happen before anything can pick an event, and a restored save

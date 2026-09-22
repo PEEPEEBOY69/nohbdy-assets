@@ -79,6 +79,31 @@ export function registerAuthoredEvent(setup, state, event, opts = {}) {
   return { slot, tags: [...model.tags], error: null };
 }
 
+// A reload rebuilds `setup` from the chassis: the records registered above are
+// gone while their text is still in the save. This puts one record back for
+// every slot the save uses, with its tags copied exactly as registration does.
+// Idempotent - a slot that already has a record is left alone.
+export function restoreAuthoredEvents(setup, state) {
+  const ev = setup && setup.ob_events;
+  const store = state && state[STATE_KEY];
+  if (!ev || !Array.isArray(ev.db) || !store || typeof store !== 'object') return 0;
+  const model = ev.db.find(e => e && Array.isArray(e.tags) && e.tags.length && !e.obscuraAuthored);
+  if (!model) return 0;
+  let added = 0;
+  for (const slot of slotNames()) {
+    if (!store[slot]) continue;
+    if (ev.db.some(e => e && e.passage === slot)) continue;
+    ev.db.push({
+      passage: slot,
+      tags: [...model.tags],
+      frequency: typeof model.frequency === 'number' ? model.frequency : 10,
+      obscuraAuthored: true,
+    });
+    added += 1;
+  }
+  return added;
+}
+
 export function authoredEventText(state, slot) {
   const store = state && state[STATE_KEY];
   const entry = store && store[slot];

@@ -8,7 +8,12 @@
 // NPCs are stored ONE PER KEY. Storing the cast as a single blob would undo
 // the per-NPC scoping that makes the 6,000-token budget work: a two-person
 // scene would have to read every NPC in the world to assemble its context.
-export const STORE_NAMES = { world: 'obscura_world', npc: 'obscura_npc' };
+// `tables` holds a generated world, one record per table (world/durable.mjs):
+// the living world rewrites one table after a task, not the whole world.
+// `pictures` holds what world/painter.mjs painted, and the looks it painted from.
+export const STORE_NAMES = {
+  world: 'obscura_world', npc: 'obscura_npc', tables: 'obscura_tables', pictures: 'obscura_pictures',
+};
 
 // NOT 'obscura'. SugarCube names its own save database after the story, so
 // once the story was retitled the engine owned an IndexedDB called `obscura`
@@ -38,6 +43,18 @@ export function createStore(opts = {}) {
     },
     async loadWorld(slot) {
       return idb.get(STORE_NAMES.world, enc(slot));
+    },
+    async saveTable(worldId, table, value) {
+      await idb.put(STORE_NAMES.tables, npcKey(worldId, table), value);
+    },
+    async loadTable(worldId, table) {
+      return idb.get(STORE_NAMES.tables, npcKey(worldId, table));
+    },
+    async savePicture(key, value) {
+      await idb.put(STORE_NAMES.pictures, String(key), value);
+    },
+    async loadPicture(key) {
+      return idb.get(STORE_NAMES.pictures, String(key));
     },
     async saveNpc(slot, name, record) {
       await idb.put(STORE_NAMES.npc, npcKey(slot, name), record);

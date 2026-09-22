@@ -97,6 +97,21 @@ export function clockOf(setup, V) {
 const esc = s => String(s == null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
+// The file the chassis's own caption would show for a node - the same rules
+// StoryCaption applies: the alternate picture when the player chose it, then
+// "_snow" in a snowy world, else "_<season>" for a place that changes.
+export function placePictureName(node, V = {}, setup = null) {
+  if (!node || typeof node.img !== 'string' || !node.img) return null;
+  let name = V.usealtlocimg && node.altimg ? node.altimg : node.img;
+  if (node.snowvariation && V.snowyworld) return `${name}_snow`;
+  if (node.seasonvariation) {
+    let season = null;
+    try { season = setup && setup.ob_weather && setup.ob_weather.season(); } catch { /* no weather yet */ }
+    if (season) name += `_${season}`;
+  }
+  return name;
+}
+
 // The hub, as markup. Pure: everything it needs is passed in, so it can be
 // tested without an engine. Returns SugarCube markup, not plain HTML, because
 // the links have to be real passage links the engine will wire up.
@@ -108,7 +123,22 @@ export function hubHtml(setup, V, opts = {}) {
   const name = here
     ? displayName(V, here.key, here.name || here.key)
     : (opts.unknownName || 'somewhere you do not recognise');
+
+  // The place's picture, big enough to see on a phone, where the sidebar that
+  // normally shows it is hidden. It starts as the shipped room; the painter
+  // (world/painter.mjs) swaps in the one painted for this world, matching on
+  // data-ob-place.
+  if (here && opts.pictureBase) {
+    const file = placePictureName(here, V, setup);
+    if (file) {
+      lines.push(`<div class="ob-hub-picture" style="margin:0 0 0.8em">`
+        + `<img data-ob-place="${esc(here.key)}" src="${esc(`${opts.pictureBase}${file}.png`)}" alt=""`
+        + ` style="width:256px;max-width:100%;height:auto;image-rendering:pixelated"></div>`);
+    }
+  }
   lines.push(`<div class="ob-hub-place"><b>${esc(name)}</b></div>`);
+
+  if (opts.notice) lines.push(`<div class="ob-hub-notice" style="opacity:0.75;font-size:0.9em">${esc(opts.notice)}</div>`);
 
   const clock = clockOf(setup, V);
   if (clock) lines.push(`<div class="ob-hub-clock">${esc(clock)}</div>`);
@@ -152,7 +182,13 @@ export function installHub(deps = {}) {
 
   const V = () => (deps.state || SC.State).variables;
 
-  setup.ob_obscura_hub = () => hubHtml(setup, V());
+  // Pictures come from the same place the build pointed every res/img/ path.
+  const pictureBase = () => deps.pictureBase
+    || (typeof window !== 'undefined' && window.OBSCURA_ASSET_BASE ? `${window.OBSCURA_ASSET_BASE}img/` : '');
+  setup.ob_obscura_hub = () => hubHtml(setup, V(), {
+    pictureBase: pictureBase(),
+    notice: typeof deps.notice === 'function' ? deps.notice() : null,
+  });
 
   // $locationblock is the MAP a location belongs to. The chassis reads it 27
   // times - for the location picture, who is here, fast travel - and normally

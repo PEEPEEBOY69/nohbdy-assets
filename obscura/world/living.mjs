@@ -134,6 +134,54 @@ export function parseTaskReply(text) {
   }
 }
 
+// Where the save keeps what the world grew. `setup` is rebuilt from the chassis
+// on every page load and a save never carries it, so each addition is logged
+// here - the record it was cloned from and the text written into it - and
+// replayed when the world is restored (world/durable.mjs). Small entries, and
+// the engine's history is delta-encoded, so an append-only log costs little.
+export const GROWTH_KEY = 'obscuraGrowth';
+
+// Data is copied, functions are kept by reference. A JSON round-trip drops
+// function fields - petitions carry npc_loves and npc_hates - so a record made
+// that way is missing part of its shape.
+export function cloneRecord(value) {
+  if (typeof value === 'function') return value;
+  if (Array.isArray(value)) return value.map(cloneRecord);
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) out[k] = cloneRecord(v);
+    return out;
+  }
+  return value;
+}
+
+// Rebuilds logged additions onto fresh tables. Same rules as the first time:
+// the shape comes from a live record, and only string fields that were already
+// strings are written. Returns how many records it added.
+export function replayGrowth(setup, log) {
+  if (!setup || !Array.isArray(log)) return 0;
+  let added = 0;
+  for (const entry of log) {
+    if (!entry || typeof entry !== 'object' || typeof entry.key !== 'string') continue;
+    const task = TASKS.find(t => t.key === entry.task);
+    if (!task) continue;
+    const container = containerFor(setup, task);
+    if (!container || Object.prototype.hasOwnProperty.call(container, entry.key)) continue;
+    const list = records(container);
+    const source = (entry.from && container[entry.from] && typeof container[entry.from] === 'object')
+      ? container[entry.from] : (list[0] && list[0][1]);
+    if (!source) continue;
+    const clone = cloneRecord(source);
+    for (const [k, v] of Object.entries(entry.fields || {})) {
+      if (typeof v === 'string' && typeof clone[k] === 'string') clone[k] = v;
+    }
+    if (typeof clone.name === 'string') clone.name = entry.key;
+    container[entry.key] = clone;
+    added += 1;
+  }
+  return added;
+}
+
 // Builds the new record. The clone is what guarantees structural validity; the
 // reply only ever overwrites string fields that were already strings.
 export function applyTaskReply(container, sample, reply, opts = {}) {
@@ -148,8 +196,8 @@ export function applyTaskReply(container, sample, reply, opts = {}) {
   const nameFaults = faultsIn(name, 'name');
   if (nameFaults.length) return { added: null, error: `name ${nameFaults.join(', ')}: "${name}"` };
 
-  const clone = JSON.parse(JSON.stringify(sample));
-  let wrote = 0;
+  const clone = cloneRecord(sample);
+  const fields = {};
   for (const [k, v] of Object.entries(reply)) {
     if (k === 'name') continue;
     if (typeof v !== 'string') continue;
@@ -158,11 +206,11 @@ export function applyTaskReply(container, sample, reply, opts = {}) {
     if (!clean || clean.length > (opts.maxChars ?? MAX_FIELD_CHARS)) continue;
     if (faultsIn(clean).length) continue;
     clone[k] = clean;
-    wrote += 1;
+    fields[k] = clean;
   }
   if (typeof clone.name === 'string') clone.name = name;
   container[name] = clone;
-  return { added: name, wrote, error: null };
+  return { added: name, wrote: Object.keys(fields).length, fields, error: null };
 }
 
 // Authoring an EVENT is different from authoring a record: it does not clone a
@@ -184,6 +232,11 @@ export function buildEventPrompt(premise, lexicon) {
   ].join('\n');
 }
 
+// Premise and lexicon may be given as values or as getters. A living world
+// started at boot reads them from the save, and loading another save changes
+// them under it.
+const now = (x) => (typeof x === 'function' ? x() : x);
+
 export async function runEventTask(deps, stats) {
   const setup = deps.setup;
   const state = deps.state
@@ -193,7 +246,7 @@ export async function runEventTask(deps, stats) {
 
   let reply;
   try {
-    reply = await deps.model.ask(buildEventPrompt(deps.premise, deps.lexicon),
+    reply = await deps.model.ask(buildEventPrompt(now(deps.premise), now(deps.lexicon)),
       { maxTokens: 240, temperature: 0.95, background: true });
   } catch (err) {
     stats.failed += 1;
@@ -247,6 +300,15 @@ export function createLivingWorld(deps = {}) {
     return v && typeof v.gameday === 'number' ? v.gameday : 0;
   };
 
+  function logGrowth(entry) {
+    const state = deps.state
+      || (typeof window !== 'undefined' && window.SugarCube && window.SugarCube.State);
+    const v = state && state.variables;
+    if (!v) return;
+    if (!Array.isArray(v[GROWTH_KEY])) v[GROWTH_KEY] = [];
+    v[GROWTH_KEY].push(entry);
+  }
+
   async function runOnce() {
     const setup = deps.setup
       || (typeof window !== 'undefined' && window.SugarCube && window.SugarCube.setup);
@@ -270,9 +332,9 @@ export function createLivingWorld(deps = {}) {
       if (!list.length) continue;
       taskIndex = (taskIndex + i + 1) % (TASKS.length + 1);
 
-      const [, sample] = list[Math.floor(Math.random() * list.length)];
+      const [sampleKey, sample] = list[Math.floor(Math.random() * list.length)];
       const names = list.map(([k]) => k).slice(0, 40);
-      const prompt = buildTaskPrompt(task, deps.premise, deps.lexicon, sample)
+      const prompt = buildTaskPrompt(task, now(deps.premise), now(deps.lexicon), sample)
         .replace('EXISTING NAMES (do not reuse)\n', `EXISTING NAMES (do not reuse)\n${names.join(', ')}\n`);
 
       let reply;
@@ -296,6 +358,7 @@ export function createLivingWorld(deps = {}) {
         return null;
       }
       stats.added += 1;
+      logGrowth({ task: task.key, key: res.added, from: sampleKey, fields: res.fields });
       return { task: task.key, name: res.added, label: task.label };
     }
     return null;

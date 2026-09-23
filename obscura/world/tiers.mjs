@@ -52,7 +52,18 @@ export const OPENING_SEEDS = [
 // Outfit of a single item for a single gender - every other player began the
 // game naked. The same rule as the map and every other pointer: a closed set
 // or the original, never generation.
-export const CARRIED_WHOLE = ['ob_outfits'];
+//
+// Parallel arrays too: the engine finds a value's position in one array and
+// reads the same position in its partner (ob_hair_colors[i] is described as
+// ob_hair_colors_simple[i]). Generated separately, the two stop lining up and
+// an NPC is described as "undefined-haired". tests/tiers.test.mjs re-scans the
+// engine for every such pair, so a new one cannot slip through.
+export const CARRIED_WHOLE = [
+  'ob_outfits',
+  'ob_hair_colors', 'ob_hair_colors_simple',
+  'ob_dye_hair_colors', 'ob_dye_hair_colors_simple',
+  'ob_hairlengths', 'ob_hairlengths_updo',
+];
 
 export function assignTiers(tables, opts = {}) {
   const seeds = opts.readDuringWorldgen || [];

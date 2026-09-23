@@ -15,6 +15,8 @@
 //     the call: a prompt over budget is a turn that does not happen, not an
 //     expensive one. So an over-budget prompt is refused HERE, with a problem
 //     the caller can act on, rather than sent and lost.
+import { findPlugin } from './plugins.mjs';
+
 export const PROMPT_TOKEN_BUDGET = 6000;
 
 // The house estimate, matched deliberately so budgets mean the same thing
@@ -27,11 +29,10 @@ export function estimateTokens(value) {
   return Math.max(Math.ceil(bytes / 3), Math.ceil(text.length / 3.5));
 }
 
-// `ai` is a bare global on a Perchance page, not a property of anything we own.
+// `ai` is NOT a bare global on a Perchance page - it lives on `root` (see
+// plugins.mjs, measured on the published page).
 export function resolvePlugin(scope) {
-  const g = scope || (typeof globalThis !== 'undefined' ? globalThis : {});
-  if (typeof g.ai === 'function') return g.ai;
-  return null;
+  return findPlugin('ai', scope);
 }
 
 export function createModel(opts = {}) {

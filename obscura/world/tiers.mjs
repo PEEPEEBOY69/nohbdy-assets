@@ -58,11 +58,16 @@ export const OPENING_SEEDS = [
 // ob_hair_colors_simple[i]). Generated separately, the two stop lining up and
 // an NPC is described as "undefined-haired". tests/tiers.test.mjs re-scans the
 // engine for every such pair, so a new one cannot slip through.
+//
+// And the colour table: a colour's name maps to the hex code the clothing
+// validator and the swatches read. Inferred as an enum, the stub dealt the
+// codes out at random, so "navy blue" could render as any colour at all.
 export const CARRIED_WHOLE = [
   'ob_outfits',
   'ob_hair_colors', 'ob_hair_colors_simple',
   'ob_dye_hair_colors', 'ob_dye_hair_colors_simple',
   'ob_hairlengths', 'ob_hairlengths_updo',
+  'ob_color_table',
 ];
 
 export function assignTiers(tables, opts = {}) {

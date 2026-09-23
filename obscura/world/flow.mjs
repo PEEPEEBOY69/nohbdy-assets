@@ -13,6 +13,8 @@ import { buildWorld, applyWorld } from './builder.mjs';
 import { sharedStore } from './store.mjs';
 import { AiGenerator } from './ai-generator.mjs';
 import { sharedModel } from './ai-text.mjs';
+import { findPlugin } from './plugins.mjs';
+import { sweepLeftovers } from './leftovers.mjs';
 import { OPENING_SEEDS } from './tiers.mjs';
 import {
   generateLexicon, DEFAULT_LEXICON, install as installLexicon,
@@ -60,6 +62,26 @@ export async function loadKeySets(base, fetchImpl) {
   }
 }
 
+// Player-facing, and mine: first person.
+export const NO_MODEL_MESSAGE = "I can't reach Perchance's AI right now, so I can't build your world. "
+  + 'Give it a moment, reload the page, and press Build it again.';
+
+// The message, and a way back to the premise, where the build was going to be.
+function refuse(el, doc, message, deps) {
+  if (!el) return;
+  el.textContent = message;
+  if (!doc || typeof doc.createElement !== 'function' || typeof el.appendChild !== 'function') return;
+  const SC = deps.SugarCube || (typeof window !== 'undefined' ? window.SugarCube : null);
+  const back = doc.createElement('button');
+  back.className = 'macro-button link-internal ob-build-back';
+  back.textContent = 'Back';
+  back.addEventListener('click', () => { try { SC.Engine.play('ObscuraPremise'); } catch { /* no engine */ } });
+  const row = doc.createElement('div');
+  row.style.marginTop = '1em';
+  row.appendChild(back);
+  el.appendChild(row);
+}
+
 export async function startBuild(premise, progressId, done, deps = {}) {
   const setup = deps.setup
     || (typeof window !== 'undefined' && window.SugarCube && window.SugarCube.setup);
@@ -76,18 +98,25 @@ export async function startBuild(premise, progressId, done, deps = {}) {
     const tables = deps.tables || harvestTables(setup);
     const chosen = premise || 'an ordinary town with something underneath';
 
-    // The model writes the world's text when the plugin is there, and the
-    // deterministic stub carries it when it is not. Same interface either way -
-    // that was the point of building the contract before the model existed.
-    // The PAGE hands the plugin in; the module never reaches for a global.
-    // `ai` is created by the lists panel's {import:ai-text-plugin} in page
-    // scope, and a bare `ai` inside an ES module is a ReferenceError, not a
-    // fallback. The house rule is the same for any CDN global: never
-    // dereference one at module top level - it cost Nohbdy Hub a live mobile
-    // crash. So the passage passes it and this only decides what to do with it.
+    // The model writes the world's text. It is found on Perchance's `root`
+    // (plugins.mjs): a bare `ai` - what the passage used to hand in - is
+    // undefined everywhere but the panel's own inline scripts, so every
+    // published world was built with no model while every local walk passed.
     // SHARED, not created: the living world and the painter use the same
     // plugin, and two queues would overlap calls the plugin cannot take.
-    const model = deps.model || sharedModel({ plugin: deps.plugin, scope: deps.scope });
+    const model = deps.model
+      || sharedModel({ plugin: deps.plugin || findPlugin('ai', deps.scope), scope: deps.scope });
+
+    // No model, no world. Without one the build can only lay the chassis's
+    // placeholders out as a world, which is what players met: a name reading
+    // "[ob_names-20]", the original's places, nothing written. An honest stop
+    // with a way back beats that. The stub path stays for the tests and the
+    // local harness, which ask for it by name.
+    if (!model.available() && !deps.allowStub) {
+      console.error('Obscura: no ai-text-plugin on this page; the world was not built');
+      refuse(el, doc, NO_MODEL_MESSAGE, deps);
+      return { refused: 'no-model' };
+    }
 
     // The vocabulary comes FIRST, and before any table text, for two reasons.
     // It is one cheap call that decides how 366 substitutions across 89
@@ -129,6 +158,13 @@ export async function startBuild(premise, progressId, done, deps = {}) {
         built.textProblems.slice(0, 10));
     }
 
+    // What the model did not write never reaches the screen: a name goes back
+    // to the chassis's name at that place, placeholder-only prose is emptied.
+    built.leftovers = sweepLeftovers(built.world, tables);
+    if (built.leftovers.restored || built.leftovers.blanked) {
+      console.warn('Obscura: fields the model did not write', built.leftovers);
+    }
+
     // The world is applied as the data that is saved - no generated function
     // stubs - so a fresh session and a reloaded one run the same world.
     applyWorld(setup, plain(built.world) || built.world);
@@ -168,6 +204,7 @@ export async function startBuild(premise, progressId, done, deps = {}) {
         tables: Object.keys(built.world).length,
         problems: built.problems.length,
         textProblems: (built.textProblems || []).length,
+        leftovers: built.leftovers,
         text: generator && generator.stats ? Object.assign({}, generator.stats) : null,
         model: model && model.stats ? Object.assign({}, model.stats) : null,
       };
@@ -287,7 +324,7 @@ export function installWorldRestore(deps = {}) {
       const pruned = pruneDanglingEvents(setup, has);
       const events = restoreAuthoredEvents(setup, vars);
       const grown = replayGrowth(setup, vars && vars[GROWTH_KEY]);
-      const plugin = deps.plugin || null;
+      const plugin = deps.plugin || findPlugin('ai', deps.scope);
       if (plugin) {
         startLivingWorld({
           ...deps,
@@ -406,13 +443,16 @@ export function installSidebarHook(deps = {}) {
 // `textPlugin` its ai, whose SHARED queue the looks use.
 export function installPainterHook(deps = {}) {
   try {
-    if (typeof deps.plugin !== 'function') return null;
+    const plugin = typeof deps.plugin === 'function' ? deps.plugin : findPlugin('textToImage', deps.scope);
+    if (!plugin) return null;
+    const textPlugin = typeof deps.textPlugin === 'function' ? deps.textPlugin : findPlugin('ai', deps.scope);
     const SC = deps.SugarCube || (typeof window !== 'undefined' ? window.SugarCube : null);
     const vars = () => ((deps.state || (SC && SC.State) || {}).variables || {});
     return installPainter({
       ...deps,
+      plugin,
       store: deps.store || sharedStore(),
-      model: deps.model || (typeof deps.textPlugin === 'function' ? sharedModel({ plugin: deps.textPlugin }) : null),
+      model: deps.model || (textPlugin ? sharedModel({ plugin: textPlugin }) : null),
       persona: () => buildPersona(vars().obscuraPremise || '', getLexicon(deps)),
       faultsIn,
     });

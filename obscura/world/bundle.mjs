@@ -8,13 +8,13 @@ export { buildWorld, referenceGraph, applyWorld } from './builder.mjs';
 export { assignTiers, openingTables, TIER, OPENING_SEEDS } from './tiers.mjs';
 export { createStore, sharedStore, browserIdb, STORE_NAMES, DB_NAME } from './store.mjs';
 export {
-  startBuild, harvestTables, loadKeySets,
+  startBuild, harvestTables, loadKeySets, NO_MODEL_MESSAGE,
   setLexicon, getLexicon, installLexiconHook, installHubHook, installEventsHook, installPlacesHook,
   loadAssetManifest, installWorldRestore, startLivingWorld, markWorldApplied, worldMissing,
   installPainterHook, installSidebarHook, installPhoneHook,
 } from './flow.mjs';
 export { phoneHome, phoneContacts, phoneCalendar, knownPeople, installPhone } from './phone.mjs';
-export { decorateSidebar, installSidebar, iconKey, needTone, ICONS } from './sidebar.mjs';
+export { decorateSidebar, installSidebar, iconKey, ICONS } from './sidebar.mjs';
 export {
   createPainter, createLooks, installPainter, paintPrompt, buildLooksPrompt, parseLooks,
   pictureKey, lookKey, processPicture, STYLE as PAINT_STYLE, NEGATIVE as PAINT_NEGATIVE,
@@ -47,6 +47,8 @@ export {
 } from './lexicon.mjs';
 export { AiGenerator, findPlaceholders, isPlaceholder, singleWordAt } from './ai-generator.mjs';
 export { createModel, sharedModel, estimateTokens, PROMPT_TOKEN_BUDGET } from './ai-text.mjs';
+export { findPlugin } from './plugins.mjs';
+export { sweepLeftovers } from './leftovers.mjs';
 export {
   newMemory, remember, compact, contextFor, feelTowards,
   MEMORY_KEEP_RECENT, MEMORY_WEIGHT_KEEP,

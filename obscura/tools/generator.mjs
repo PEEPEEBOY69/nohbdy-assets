@@ -95,6 +95,43 @@ export function isWeightedRecordList(value) {
   return true;
 }
 
+// Every value a table can be pointed at by: the keys of a keyed table and the
+// members of a list table. A field whose ORIGINAL value is one of these is a
+// pointer into a closed set, and a written word there points at nothing:
+// ob_styles.*["femme hair dye"] draws an NPC's "hair color", which the engine
+// then looks up in ob_dye_hair_colors, and a miss reads "undefined-haired".
+const closedSets = new WeakMap();
+export function closedSetMembers(tables) {
+  if (!tables || typeof tables !== 'object') return new Set();
+  if (closedSets.has(tables)) return closedSets.get(tables);
+  const out = new Set();
+  for (const t of Object.values(tables)) {
+    if (Array.isArray(t)) {
+      for (const v of t) if (typeof v === 'string') out.add(v);
+    } else if (t && typeof t === 'object') {
+      for (const k of Object.keys(t)) out.add(k);
+    }
+  }
+  closedSets.set(tables, out);
+  return out;
+}
+
+const isPlaceholderString = (v) => typeof v === 'string' && v.startsWith('[') && v.endsWith(']');
+
+// A list the engine reads as structure, whatever type inference made of it.
+// Inference sees strings and numbers in one array and settles on "array of
+// string", so the stub wrote placeholders over skill caps ([30, 21, 18, ...])
+// and over the weights of every weighted list. A list that holds a number is
+// structure; so is one whose strings are, three in four or more, members of a
+// closed set (the rest are sentinels like "natural").
+export function isStructuralList(value, members) {
+  if (!Array.isArray(value) || !value.length) return false;
+  if (value.some(v => typeof v === 'number' || typeof v === 'boolean')) return true;
+  const strings = [...new Set(value.filter(v => typeof v === 'string'))];
+  if (!strings.length || !members || !members.size) return false;
+  return strings.filter(s => members.has(s)).length / strings.length >= 0.75;
+}
+
 export function selfIndexKeys(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
   const keys = new Set(Object.keys(value));
@@ -191,7 +228,7 @@ export class StubGenerator {
     // Variation and premise-weaving happen in ONE walk, because both need the
     // field's schema. Weaving separately appended a premise to enum-constrained
     // description fields and broke conformance on 4 of 110 tables.
-    const tagged = this.#vary(data, spec.schema, rng, spec);
+    let tagged = this.#vary(data, spec.schema, rng, spec);
 
     // Make repeated placeholders distinct. stubFor fills every slot of an array
     // with the SAME placeholder, so a name list came out as four copies of
@@ -206,8 +243,15 @@ export class StubGenerator {
     // interrupting the thread and landing inside ob_unique_random_name.
     this.#distinguish(tagged);
 
-    // Carry through the shapes the schema cannot describe.
-    this.#restoreStructures(tagged, spec.source);
+    // Carry through the shapes the schema cannot describe - at the top too: a
+    // machinery member is generated as a table of its own, and
+    // ob_nPCSimulation.default_time_weight (["morning", 50, ...]) came out as
+    // placeholders with its weights gone.
+    const members = closedSetMembers(spec.tables);
+    if (isWeightedRecordList(spec.source) || isStructuralList(spec.source, members)) {
+      tagged = structuredClone(spec.source);
+    }
+    this.#restoreStructures(tagged, spec.source, members);
 
     for (const [k, original] of Object.entries(spec.verbatim || {})) {
       if (!tagged || typeof tagged !== 'object' || Array.isArray(tagged)) break;
@@ -323,24 +367,36 @@ export class StubGenerator {
     return value;
   }
 
-  // Walks generated and original together, replacing any value whose original
-  // is a weighted list of records. Only keys the generated world still has are
-  // visited, so a capped-away key is not resurrected by the back door.
-  #restoreStructures(generated, original, depth = 0) {
+  // Walks generated and original together, putting back whatever the engine
+  // reads as structure: a weighted list of records, a list that holds numbers
+  // (a cap table, a weighted list of names), a list of members of a closed set,
+  // and a single value that is a number or a closed-set member where the stub
+  // left a placeholder. Only keys the generated world still has are visited, so
+  // a capped-away key is not resurrected by the back door.
+  #restoreStructures(generated, original, members, depth = 0) {
     if (depth > 8 || !generated || typeof generated !== 'object') return;
     if (!original || typeof original !== 'object') return;
     if (Array.isArray(generated) !== Array.isArray(original)) return;
-    if (Array.isArray(generated)) {
-      for (let i = 0; i < generated.length && i < original.length; i++) {
-        if (isWeightedRecordList(original[i])) generated[i] = structuredClone(original[i]);
-        else this.#restoreStructures(generated[i], original[i], depth + 1);
+    const restore = (key) => {
+      const orig = original[key];
+      if (isWeightedRecordList(orig) || isStructuralList(orig, members)) {
+        generated[key] = structuredClone(orig);
+        return;
       }
+      if (isPlaceholderString(generated[key])) {
+        if (typeof orig === 'number' || typeof orig === 'boolean') generated[key] = orig;
+        else if (typeof orig === 'string' && members.has(orig)) generated[key] = orig;
+        return;
+      }
+      this.#restoreStructures(generated[key], orig, members, depth + 1);
+    };
+    if (Array.isArray(generated)) {
+      for (let i = 0; i < generated.length && i < original.length; i++) restore(i);
       return;
     }
     for (const k of Object.keys(generated)) {
       if (!Object.prototype.hasOwnProperty.call(original, k)) continue;
-      if (isWeightedRecordList(original[k])) generated[k] = structuredClone(original[k]);
-      else this.#restoreStructures(generated[k], original[k], depth + 1);
+      restore(k);
     }
   }
 

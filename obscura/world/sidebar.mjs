@@ -1,17 +1,17 @@
-// world/sidebar.mjs — the sidebar, made ours.
+// world/sidebar.mjs — which sidebar button is which.
 //
-// Side by side with the original, the chassis's sidebar was the same screen in
-// different colours: the weather capsule and place frame side by side, the
-// money and time rows, eight labelled green bars in two columns, and a
-// two-column grid of text buttons in the same order. This rebuilds it as
-// Obscura's own - a place card, chips, ring gauges and an icon dock - and does
-// it by DECORATING the chassis's markup after it renders, never by replacing
-// it. The caption is 41 KB of phone states, class timers and debug hooks;
-// rewriting it is how a button quietly loses its action. Here every button is
-// the chassis's own button, doing exactly what it did, wearing our icon.
+// Side by side with the original, the sidebar was the same screen in different
+// colours. It keeps the original's STYLE on purpose - its grey (a notch darker
+// and cooler), its green loading bars, its table grid of uppercase buttons -
+// and is made Obscura's by its LAYOUT: the theme's CSS reorders the sections
+// and regroups the buttons. CSS can place a button but cannot tell which button
+// it is, so this tags each one by what it says (data-ob-ico) after the caption
+// renders. Nothing else is touched: every button is the chassis's own button
+// with its own action.
 //
-// The decoration is idempotent and runs whenever the caption is redrawn: after
-// every passage, and whenever the engine redraws the caption on its own.
+// (An earlier pass also replaced the bars with rings and the buttons with an
+// icon dock. That read as generated, not as the game, and was taken out; the
+// icon set stays because the phone's home screen uses it.)
 
 // Our own line icons, 24x24, drawn with the text colour.
 export const ICONS = {
@@ -30,9 +30,6 @@ export const ICONS = {
   disk: 'M5 3.5h11l3 3v14H5z M8 3.5v5h7v-5 M8 20.5v-6h8v6',
 };
 
-const svg = (d) => `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" `
-  + `stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg>`;
-
 // What a button IS, from what it says. The institution's button is named by the
 // world's vocabulary, so its word comes in as `institutionWord`.
 export function iconKey(label, opts = {}) {
@@ -50,14 +47,8 @@ export function iconKey(label, opts = {}) {
   return null;
 }
 
-export function needTone(v) {
-  if (!Number.isFinite(v)) return 'good';
-  if (v >= 0.6) return 'good';
-  if (v >= 0.3) return 'fair';
-  return 'low';
-}
-
-// Buttons: an icon before the label, the label in its own span.
+// Buttons: tagged by what they are, for the theme's order rules. The tooltip
+// names the button, since a regrouped grid is easier to scan with one.
 function decorateButtons(root, opts) {
   let n = 0;
   for (const btn of root.querySelectorAll('.storymenu-button-container button')) {
@@ -68,76 +59,14 @@ function decorateButtons(root, opts) {
     if (!key) continue;
     btn.dataset.obIco = key;
     if (!btn.getAttribute('title')) btn.setAttribute('title', label.replace(/\s+/g, ' ').trim());
-    const doc = btn.ownerDocument;
-    if (!btn.querySelector('.phone-button-label')) {
-      const lbl = doc.createElement('span');
-      lbl.className = 'ob-lbl';
-      while (btn.firstChild) lbl.appendChild(btn.firstChild);
-      btn.appendChild(lbl);
-    }
-    const ico = doc.createElement('span');
-    ico.className = 'ob-ico';
-    ico.innerHTML = svg(ICONS[key]);
-    btn.insertBefore(ico, btn.firstChild);
     n += 1;
   }
-  return n;
-}
-
-// Gauges: each need's value (0 to 1) and tone on its tile; the CSS draws the
-// ring. Read from the save, not from the bar's pixels.
-function decorateMeters(root, vars) {
-  let n = 0;
-  const needs = (vars && vars.pcneeds) || {};
-  for (const tile of root.querySelectorAll('#status-meters .status-meter-labeled')) {
-    const labelEl = tile.querySelector('.status-meter-label');
-    const name = labelEl ? labelEl.textContent.trim().split(/\s+/)[0] : '';
-    const raw = needs[name];
-    if (!name || typeof raw !== 'number') continue;
-    const v = Math.max(0, Math.min(1, raw / 1000));
-    tile.style.setProperty('--ob-v', v.toFixed(3));
-    tile.dataset.obTone = needTone(v);
-    tile.dataset.obNeed = name;
-    n += 1;
-  }
-  return n;
-}
-
-// Chips: the money, time and date runs, each an icon and what follows it.
-function decorateStats(root) {
-  const box = root.querySelector('.essential-stats');
-  if (!box || box.dataset.obChips) return 0;
-  box.dataset.obChips = '1';
-  const doc = box.ownerDocument;
-  const row = doc.createElement('div');
-  row.className = 'ob-chips';
-  let chip = null;
-  let n = 0;
-  for (const node of [...box.childNodes]) {
-    if (node.nodeType === 1 && node.classList.contains('essential-stats-class-status')) break;
-    const isIcon = node.nodeType === 1 && node.tagName === 'IMG' && node.classList.contains('icon');
-    if (isIcon) {
-      chip = doc.createElement('span');
-      chip.className = 'ob-chip';
-      row.appendChild(chip);
-      n += 1;
-    }
-    if (node.nodeType === 1 && (node.tagName === 'BR' || node.tagName === 'P')) { box.removeChild(node); chip = null; continue; }
-    // the original spaced its rows with runs of &nbsp;, which would pad a chip
-    if (node.nodeType === 3 && !node.textContent.trim()) { box.removeChild(node); continue; }
-    if (chip) chip.appendChild(node);
-  }
-  if (n) box.insertBefore(row, box.firstChild);
   return n;
 }
 
 export function decorateSidebar(root, vars, opts = {}) {
-  if (!root || typeof root.querySelectorAll !== 'function') return { buttons: 0, meters: 0, chips: 0 };
-  return {
-    buttons: decorateButtons(root, opts),
-    meters: decorateMeters(root, vars),
-    chips: decorateStats(root),
-  };
+  if (!root || typeof root.querySelectorAll !== 'function') return { buttons: 0 };
+  return { buttons: decorateButtons(root, opts) };
 }
 
 // Installed once at boot. deps: document, SugarCube, jQuery (optional),

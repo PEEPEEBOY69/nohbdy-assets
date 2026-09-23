@@ -29,6 +29,7 @@
 import { buildPersona, faultsIn, stripPackaging } from './persona.mjs';
 import { registerAuthoredEvent } from './events.mjs';
 import { parseModelJson } from './safejson.mjs';
+import { quietFor } from './ai-text.mjs';
 
 export const IDLE_CALLS_PER_DAY = 3;
 export const MIN_TICKS_BETWEEN = 4;
@@ -242,8 +243,7 @@ export async function runEventTask(deps, stats) {
   const setup = deps.setup;
   const state = deps.state
     || (typeof window !== 'undefined' && window.SugarCube && window.SugarCube.State);
-  const vars = state && state.variables;
-  if (!vars) return null;
+  if (!(state && state.variables)) return null;
 
   let reply;
   try {
@@ -266,7 +266,9 @@ export async function runEventTask(deps, stats) {
     stats.problems.push(`event: ${text ? faultsIn(text).join(', ') : 'no text'}`);
     return null;
   }
-  const res = registerAuthoredEvent(setup, vars, {
+  // read now, not before the call: the player has moved on meanwhile, and
+  // SugarCube gives every move a new variables object
+  const res = registerAuthoredEvent(setup, state.variables, {
     title: stripPackaging(String(value.title || ''), 'name'),
     text,
   });
@@ -383,7 +385,7 @@ export function createLivingWorld(deps = {}) {
 
     // The whole idle-only policy, in one line: it cannot preempt, so it does
     // not compete.
-    if (typeof model.idle === 'function' && !model.idle()) {
+    if (!quietFor(model)) {
       stats.skippedBusy += 1;
       return null;
     }

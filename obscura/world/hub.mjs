@@ -21,6 +21,9 @@
 // and reads everything else from the world.
 
 import { displayName } from './places.mjs';
+import { writingLine, currentWriter } from './writer.mjs';
+import { recallHere } from './recall.mjs';
+import { substituteWith } from './lexicon.mjs';
 
 export const MAX_PEOPLE_SHOWN = 8;
 
@@ -146,17 +149,28 @@ export function hubHtml(setup, V, opts = {}) {
   }
   lines.push(`<div class="ob-hub-place"><b>${esc(name)}</b></div>`);
 
+  // The world is still being written in the background (world/writer.mjs).
+  const writing = writingLine(opts.writing !== undefined ? opts.writing
+    : (currentWriter() ? currentWriter().progress() : null));
+  if (writing) lines.push(`<div class="ob-writing" id="ob-writing">${esc(writing)}</div>`);
+
   if (opts.notice) lines.push(`<div class="ob-hub-notice" style="opacity:0.75;font-size:0.9em">${esc(opts.notice)}</div>`);
 
   const clock = clockOf(setup, V);
   if (clock) lines.push(`<div class="ob-hub-clock">${esc(clock)}</div>`);
 
-  if (here && here.features) lines.push(`<div class="ob-hub-feature">${esc(here.features)}</div>`);
+  // the map's own line ("Your Dorm"), in this world's words: the hub is built
+  // here, so the passage hook never sees it
+  if (here && here.features) lines.push(`<div class="ob-hub-feature">${esc(substituteWith(here.features, V && V.obscuraLexicon))}</div>`);
 
   const names = peopleAt(setup, V && V.location)
     .map(personName).filter(Boolean).slice(0, MAX_PEOPLE_SHOWN);
   if (names.length) {
     lines.push(`<div class="ob-hub-people">Here: ${names.map(esc).join(', ')}</div>`);
+    // someone here who remembers something of you (world/recall.mjs)
+    for (const line of recallHere(V, names, (n) => String(n).split(' ')[0])) {
+      lines.push(`<div class="ob-hub-recall">${esc(line)}</div>`);
+    }
   }
 
   const exits = here ? exitsOf(here, places) : [];

@@ -29,3 +29,16 @@ export function findPlugin(name, scope) {
   } catch { /* nothing there */ }
   return null;
 }
+
+// The same lookup for a plugin that is an object with methods rather than a
+// function - the bug reporter is one.
+export function findPluginObject(name, scope) {
+  const g = scope || (typeof globalThis !== 'undefined' ? globalThis : {});
+  const ok = (v) => !!v && (typeof v === 'object' || typeof v === 'function');
+  try {
+    const root = g.root;
+    if (root) { const p = root[name]; if (ok(p)) return p; }
+  } catch { /* not a name this root knows */ }
+  try { if (ok(g[name])) return g[name]; } catch { /* nothing there */ }
+  return null;
+}

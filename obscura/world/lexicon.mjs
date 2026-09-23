@@ -299,17 +299,19 @@ export function compile(lexicon = {}) {
   // 2. "a college" / "an exam" - the article has to agree with the new word.
   for (const [pattern, key, opts = {}] of TERMS) {
     const word = lex[key];
-    if (!word || pattern.includes(' ')) continue;
-    // A replacement that already carries its own article ("the Deep") cannot
-    // follow "a" - that yields "a the Deep". Drop the original's article and
-    // let the replacement supply its own.
+    if (!word) continue;
+    // A replacement that already carries its own article ("the Deep") takes
+    // the place of the original's: "a the Deep" and "the the Tide Shrine"
+    // are both wrong, and the chassis writes "the F-K University crest".
+    // Phrases too - "f-k university" is the one that needs it most.
     if (carriesArticle(word)) {
       rules.push({
-        re: new RegExp('\\b(a|an)\\s+' + pattern + '\\b', 'gi'),
+        re: new RegExp('\\b(the|a|an)\\s+' + pattern.replace(/[-]/g, '\\-').replace(/ /g, '\\s+') + '\\b', 'gi'),
         build: (...a) => caseFor(a[a.length - 1], a[a.length - 2], a[0], word),
       });
       continue;
     }
+    if (pattern.includes(' ')) continue;
     rules.push({
       re: new RegExp('\\b(a|an)\\s+' + pattern + '\\b', 'gi'),
       build: (m, art) => matchCase(art, articleFor(word)) + ' ' + word,
@@ -339,14 +341,71 @@ export function compile(lexicon = {}) {
   return { lex, rules };
 }
 
+// One pass. Each replacement goes in as an inert marker and the words are put
+// in at the end, so no rule ever matches a word another rule wrote. Run one
+// after another over the text, "university" became "shrine school" and then
+// the "school" rule rewrote its own output: "the shrine shrine school", in
+// every passage, whenever the model's word held another term (2026-09-23).
+// A marker holds no letters and no sentence punctuation, so a word after one
+// reads as mid-sentence - which it is.
+const MARK = /\uE000(\d+)\uE001/g;
+
 export function substitute(text, compiled) {
   const { rules } = compiled;
   return segment(text).map(seg => {
     if (seg.kind === 'code') return seg.text;
+    const made = [];
     let s = seg.text;
-    for (const r of rules) s = s.replace(r.re, r.build);
-    return s;
+    for (const r of rules) {
+      s = s.replace(r.re, (...a) => {
+        made.push(r.build(...a));
+        return `\uE000${made.length - 1}\uE001`;
+      });
+    }
+    return s.replace(MARK, (m, i) => made[Number(i)]);
   }).join('');
+}
+
+// The same words for text the engine builds in JavaScript - the hub's lines,
+// a clothing record's name - which never passes through the passage hook.
+// Compiled once per lexicon.
+let memoKey = null;
+let memoCompiled = null;
+export function substituteWith(text, lexicon) {
+  const key = JSON.stringify(lexicon || {});
+  if (key !== memoKey) { memoKey = key; memoCompiled = compile(lexicon || {}); }
+  return substitute(String(text == null ? '' : text), memoCompiled);
+}
+
+// Records whose display fields the engine prints straight from the table:
+// what you are wearing ("%style %color F-K University t-shirt" is a clothing
+// NAME template) and what a shop describes. Keys, and every field that points
+// at a key, are left alone. Always rewritten from the ORIGINAL text, kept
+// aside the first time: a second pass over "shrine school" would find
+// "school" again.
+export const DISPLAY_FIELDS = { clothes: /^(name|description\b.*)$/ };
+const originals = new WeakMap();
+
+export function applyLexiconToTables(setup, lexicon, tables = DISPLAY_FIELDS) {
+  let changed = 0;
+  for (const [name, fields] of Object.entries(tables)) {
+    const table = setup && setup[name];
+    if (!table || typeof table !== 'object') continue;
+    for (const rec of Object.values(table)) {
+      if (!rec || typeof rec !== 'object' || Array.isArray(rec)) continue;
+      let kept = originals.get(rec);
+      if (!kept) {
+        kept = {};
+        for (const [k, v] of Object.entries(rec)) if (typeof v === 'string' && fields.test(k)) kept[k] = v;
+        originals.set(rec, kept);
+      }
+      for (const [k, v] of Object.entries(kept)) {
+        const next = substituteWith(v, lexicon);
+        if (rec[k] !== next) { rec[k] = next; changed++; }
+      }
+    }
+  }
+  return changed;
 }
 
 // The keys a generated lexicon supplies, with the question each one answers.
@@ -389,6 +448,10 @@ export function buildLexiconPrompt(premise) {
     '',
     'KEYS',
     ...LEXICON_PROMPT_KEYS.map(([k, q]) => `${k}: ${q}`),
+    // Not vocabulary: whether the engine's own (modern English) name lists
+    // fit this world. Asked here because a separate call costs 20-30 s on
+    // perchance.org whatever it asks (world/names.mjs).
+    'names: the language, culture and era of people\'s names here - "english" if ordinary modern English names fit, otherwise say which (for example "Edo-period Japanese")',
   ].join('\n');
 }
 
@@ -417,7 +480,8 @@ export async function generateLexicon(premise, model) {
       if (word.length > 40) { problems.push(`${key}: too long`); continue; }
       out[key] = word;
     }
-    return { lexicon: out, problems };
+    const names = typeof parsed.names === 'string' ? parsed.names.trim().slice(0, 80) : '';
+    return { lexicon: out, problems, names };
   } catch (err) {
     return {
       lexicon: { ...DEFAULT_LEXICON },

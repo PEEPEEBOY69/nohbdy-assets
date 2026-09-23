@@ -64,9 +64,43 @@ function decorateButtons(root, opts) {
   return n;
 }
 
+// Feedback and Comments, beside Save, Options, Help and Support: the last
+// button block, which is there from the first screen of character creation.
+// The sidebar is drawn again on every passage, so this runs every time and
+// adds only what is missing.
+export function addCommunityButtons(root, deps = {}) {
+  const doc = deps.document || (typeof document !== 'undefined' ? document : null);
+  const setup = deps.setup || (typeof window !== 'undefined' && window.SugarCube ? window.SugarCube.setup : null);
+  if (!doc || !root || typeof root.querySelectorAll !== 'function') return 0;
+  const blocks = root.querySelectorAll('.storymenu-button-block');
+  const block = blocks[blocks.length - 1];
+  if (!block) return 0;
+  let added = 0;
+  for (const [ico, label, fn] of [['feedback', 'Feedback', 'ob_open_feedback'], ['comments', 'Comments', 'ob_open_comments']]) {
+    if (block.querySelector(`[data-ob-ico="${ico}"]`)) continue;
+    const b = doc.createElement('button');
+    b.type = 'button';
+    b.className = 'macro-button link-internal ob-community';
+    b.dataset.obIco = ico;
+    b.textContent = label;
+    b.setAttribute('title', label);
+    b.addEventListener('click', () => { try { if (setup && typeof setup[fn] === 'function') setup[fn](); } catch { /* not the sidebar's failure */ } });
+    // the same wrapper the chassis gives its own buttons, so they are styled
+    // and placed by the same rules
+    const wrap = doc.createElement('div');
+    wrap.className = 'storymenu-button-container';
+    wrap.appendChild(b);
+    block.appendChild(wrap);
+    added += 1;
+  }
+  return added;
+}
+
 export function decorateSidebar(root, vars, opts = {}) {
   if (!root || typeof root.querySelectorAll !== 'function') return { buttons: 0 };
-  return { buttons: decorateButtons(root, opts) };
+  const buttons = decorateButtons(root, opts);
+  addCommunityButtons(root, opts);
+  return { buttons };
 }
 
 // Installed once at boot. deps: document, SugarCube, jQuery (optional),

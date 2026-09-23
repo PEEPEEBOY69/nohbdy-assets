@@ -118,6 +118,17 @@ export function closedSetMembers(tables) {
 
 const isPlaceholderString = (v) => typeof v === 'string' && v.startsWith('[') && v.endsWith(']');
 
+// The one kind of string the world has to write: the original's prose, which
+// the chassis stripped to "[description — unwritten #12]" because it cannot
+// ship. Everything else in the original - names, labels, short lines - ships
+// with the chassis already and is the engine's own data. Regenerating it was
+// the build's biggest cost: 544 names alone, written by a model, to replace
+// the names the engine's generator already draws from.
+const STRIPPED = /unwritten #\d+/;
+export const isRealString = (v) => typeof v === 'string' && v.trim() !== ''
+  && !isPlaceholderString(v) && !STRIPPED.test(v);
+const isRealStringList = (v) => Array.isArray(v) && v.length > 0 && v.every(isRealString);
+
 // A list the engine reads as structure, whatever type inference made of it.
 // Inference sees strings and numbers in one array and settles on "array of
 // string", so the stub wrote placeholders over skill caps ([30, 21, 18, ...])
@@ -248,7 +259,7 @@ export class StubGenerator {
     // ob_nPCSimulation.default_time_weight (["morning", 50, ...]) came out as
     // placeholders with its weights gone.
     const members = closedSetMembers(spec.tables);
-    if (isWeightedRecordList(spec.source) || isStructuralList(spec.source, members)) {
+    if (isWeightedRecordList(spec.source) || isStructuralList(spec.source, members) || isRealStringList(spec.source)) {
       tagged = structuredClone(spec.source);
     }
     this.#restoreStructures(tagged, spec.source, members);
@@ -379,13 +390,13 @@ export class StubGenerator {
     if (Array.isArray(generated) !== Array.isArray(original)) return;
     const restore = (key) => {
       const orig = original[key];
-      if (isWeightedRecordList(orig) || isStructuralList(orig, members)) {
+      if (isWeightedRecordList(orig) || isStructuralList(orig, members) || isRealStringList(orig)) {
         generated[key] = structuredClone(orig);
         return;
       }
       if (isPlaceholderString(generated[key])) {
         if (typeof orig === 'number' || typeof orig === 'boolean') generated[key] = orig;
-        else if (typeof orig === 'string' && members.has(orig)) generated[key] = orig;
+        else if (isRealString(orig)) generated[key] = orig;
         return;
       }
       this.#restoreStructures(generated[key], orig, members, depth + 1);

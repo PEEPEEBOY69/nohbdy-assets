@@ -12,6 +12,7 @@
 // player has actually met, and the map. Each screen is a small passage in
 // game/passages.json that calls one of these.
 import { ICONS } from './sidebar.mjs';
+import { latestLine } from './recall.mjs';
 
 const esc = s => String(s == null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -59,9 +60,14 @@ export function knownPeople(V, max = 80) {
 
 export function phoneContacts(setup, V) {
   const list = knownPeople(V);
+  // someone the player brought keeps their own description (world/cast.mjs)
+  const brought = (V && V.obscuraCast) || {};
+  const first = (s) => String(s || '').split(/(?<=[.!?])\s/)[0].slice(0, 140);
   const rows = list.length
     ? list.map(p => `<div class="ob-phone-row">${p.fav ? '<b>' : ''}${esc(p.name)}${p.fav ? '</b>' : ''}`
-      + `${p.relationship ? `<span class="ob-phone-sub">${esc(p.relationship)}</span>` : ''}</div>`).join('')
+      + `${p.relationship ? `<span class="ob-phone-sub">${esc(p.relationship)}</span>` : ''}`
+      + `${brought[p.key] && brought[p.key].profile ? `<span class="ob-phone-sub">${esc(first(brought[p.key].profile))}</span>` : ''}`
+      + `${latestLine(V, p.key) ? `<span class="ob-phone-sub ob-phone-recall">${esc(latestLine(V, p.key))}</span>` : ''}</div>`).join('')
     : '<div class="ob-phone-empty">Nobody yet. The people you meet will be here.</div>';
   return `<div class="ob-phone">${header(setup)}<div class="ob-phone-title">Contacts</div>${rows}${back()}</div>`;
 }

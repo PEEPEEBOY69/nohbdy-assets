@@ -14,11 +14,19 @@ import { sharedStore } from './store.mjs';
 import { AiGenerator } from './ai-generator.mjs';
 import { sharedModel } from './ai-text.mjs';
 import { findPlugin } from './plugins.mjs';
-import { sweepLeftovers } from './leftovers.mjs';
+import {
+  planWorld, planChassis, replayWriting, createWriter, setCurrentWriter, currentWriter,
+  tablesForScreen, writingLine, writerStatus, PLAN_LOG, WRITES_LOG, WRITER_FIELDS_PER_CALL,
+} from './writer.mjs';
+import { installGuard } from './guard.mjs';
+import { createBuildScreen } from './buildscreen.mjs';
+import { namesFit, generateNames, applyNameLists } from './names.mjs';
+import { worldBriefFrom } from './imports.mjs';
+import { castSets, mapPending, joinPending, unmapped, CAST_PENDING_KEY } from './cast.mjs';
 import { OPENING_SEEDS } from './tiers.mjs';
 import {
   generateLexicon, DEFAULT_LEXICON, install as installLexicon,
-  compile as compileLexicon, substitute as substituteLexicon,
+  compile as compileLexicon, substitute as substituteLexicon, applyLexiconToTables,
 } from './lexicon.mjs';
 import { createLivingWorld, installLivingWorld, replayGrowth, GROWTH_KEY } from './living.mjs';
 import { WORLD_ID_KEY, newWorldId, persistWorld, createDurable, plain } from './durable.mjs';
@@ -88,15 +96,45 @@ export async function startBuild(premise, progressId, done, deps = {}) {
   const base = deps.base
     || (typeof window !== 'undefined' && window.OBSCURA_ASSET_BASE) || '';
   const doc = deps.document || (typeof document !== 'undefined' ? document : null);
-  const el = progressId && doc ? doc.getElementById(progressId) : null;
-  const say = (text) => { if (el) el.textContent = text; };
+  // Looked up on every line, never once: SugarCube runs this <<run>> while it
+  // renders the passage OFF the document, so a lookup here is null and every
+  // progress line went nowhere - the player watched "Starting..." for a
+  // forty-minute build. By the first await the passage is attached.
+  const progressEl = () => (progressId && doc ? doc.getElementById(progressId) : null);
+  // The build screen (world/buildscreen.mjs), made the first time there is a
+  // real element to put it in. Without one - the tests, a page with no DOM -
+  // progress is a line of text in whatever element there is.
+  let screen = null;
+  const ui = () => {
+    if (screen) return screen;
+    const el = progressEl();
+    if (el && doc && typeof doc.createElement === 'function' && typeof el.appendChild === 'function') {
+      try { screen = createBuildScreen(el, { document: doc }); } catch (err) { console.warn('Obscura: no build screen', err); }
+    }
+    return screen;
+  };
+  const say = (text) => {
+    const s = ui();
+    if (s) { s.status(text); return; }
+    const el = progressEl();
+    if (el) el.textContent = text;
+  };
+  const stepTo = (key) => { const s = ui(); if (s) s.step(key); };
 
   try {
     if (!setup) throw new Error('the engine is not loaded');
     const keys = await loadKeySets(base, deps.fetch);
     const assetManifest = deps.assetManifest || await loadAssetManifest(base, deps.fetch);
     const tables = deps.tables || harvestTables(setup);
-    const chosen = premise || 'an ordinary town with something underneath';
+    // A world brought in on the premise screen (world/premise.mjs) is folded
+    // into the premise as a bounded brief: title, setting, what is always
+    // true, then as much of the rest as fits.
+    const stateVars = (deps.state || (typeof window !== 'undefined' && window.SugarCube && window.SugarCube.State) || {}).variables || {};
+    const brought = stateVars.obscuraImport && typeof stateVars.obscuraImport === 'object' ? stateVars.obscuraImport : null;
+    const brief = brought && (brought.lore && brought.lore.length || brought.setting) ? worldBriefFrom(brought, 1400) : '';
+    const typed = premise || '';
+    const chosen = (brief && typed && !brief.startsWith(typed) ? `${typed}\n\n${brief}` : (brief || typed))
+      || 'an ordinary town with something underneath';
 
     // The model writes the world's text. It is found on Perchance's `root`
     // (plugins.mjs): a bare `ai` - what the passage used to hand in - is
@@ -114,7 +152,7 @@ export async function startBuild(premise, progressId, done, deps = {}) {
     // local harness, which ask for it by name.
     if (!model.available() && !deps.allowStub) {
       console.error('Obscura: no ai-text-plugin on this page; the world was not built');
-      refuse(el, doc, NO_MODEL_MESSAGE, deps);
+      refuse(progressEl(), doc, NO_MODEL_MESSAGE, deps);
       return { refused: 'no-model' };
     }
 
@@ -123,66 +161,62 @@ export async function startBuild(premise, progressId, done, deps = {}) {
     // passages will read, and the generated table text should be able to use
     // the same words the passages will. A failure here is never fatal: the
     // default lexicon is already neutral rather than college vocabulary.
+    stepTo('words');
     say('Naming things...');
     const lex = await generateLexicon(chosen, model);
     if (lex.problems.length) console.warn('Obscura lexicon:', lex.problems);
     setLexicon(lex.lexicon, deps);
+    // what the engine prints straight from a table - what you are wearing -
+    // speaks the same words as the passages
+    applyLexiconToTables(setup, lex.lexicon);
 
-    // The generator is built AFTER the lexicon, and carries it. Every field it
-    // writes then uses the same words the passages were just rewritten to -
-    // otherwise the chassis's prose says "hab" while the generated prose says
-    // "dorm room", which is worse than either alone.
-    const generator = deps.generator
-      || (model.available() ? new AiGenerator({ model, lexicon: lex.lexicon }) : undefined);
-
-    if (generator) say('Writing your world...');
-
+    // The structure, from the stub alone - no model. The engine's own data is
+    // kept whole; the original's stripped prose is left to the writer. With
+    // the model writing every field here, this step was forty minutes of a
+    // screen that said "Starting..." (measured on perchance.org, 2026-09-23).
+    // Names that belong to the world (world/names.mjs): the engine's own lists
+    // unless the vocabulary call said this world's people are not modern
+    // English speakers - then one call for lists of its own.
+    stepTo('names');
+    let nameLists = null;
+    if (!namesFit(lex.names)) {
+      if (screen) screen.expect('names', 40000);
+      say(`Finding ${lex.names} names...`);
+      const got = await generateNames(chosen, lex.names, model);
+      if (got.problems.length) console.warn('Obscura names:', got.problems);
+      nameLists = got.lists;
+    }
+    stepTo('layout');
+    say('Laying out your world...');
     const built = await buildWorld(tables, {
-      generator,
+      generator: deps.generator,
       premise: chosen,
       seed: chosen,
       readDuringWorldgen: deps.seeds || OPENING_SEEDS,
       assetManifest,
       keepKeys: (name) => keys.keep[name] || [],
       verbatimKeys: (name) => keys.verbatim[name] || [],
-      onProgress: (p) => say(`Building ${p.done} of ${p.total}  -  ${p.table}`),
     });
 
     if (built.problems.length) {
       console.error('Obscura world problems:', built.problems.slice(0, 20));
     }
-    // Text failures are reported and never fatal: a world with some
-    // placeholders left is playable, a world that failed to build is not.
-    if (built.textProblems && built.textProblems.length) {
-      console.warn(`Obscura: ${built.textProblems.length} field(s) kept their placeholder`,
-        built.textProblems.slice(0, 10));
-    }
 
-    // What the model did not write never reaches the screen: a name goes back
-    // to the chassis's name at that place, placeholder-only prose is emptied.
-    built.leftovers = sweepLeftovers(built.world, tables);
-    if (built.leftovers.restored || built.leftovers.blanked) {
-      console.warn('Obscura: fields the model did not write', built.leftovers);
-    }
+    // Everything still to write, with a blank where it stands: the world's
+    // own prose first, then - once the world is applied - the original's
+    // stripped prose everywhere else in `setup`. Nothing unwritten is ever a
+    // token on screen; the writer fills the blanks while the player plays.
+    // The world's own names go into the engine's lists by kind, and into the
+    // stored world, so a reload keeps them.
+    if (nameLists && tables.ob_names) built.world.ob_names = applyNameLists(tables.ob_names, nameLists);
+    const worldPlan = planWorld(built.world, tables);
 
     // The world is applied as the data that is saved - no generated function
     // stubs - so a fresh session and a reloaded one run the same world.
     applyWorld(setup, plain(built.world) || built.world);
+    const plan = [...worldPlan, ...planChassis(setup)];
+    built.planned = plan.length;
 
-    // The geography. The map is carried whole, so without this every place
-    // keeps the original's name - Blodgett Gymnasium in a rain-dark city.
-    // Names are written into a story variable and only what is DISPLAYED is
-    // routed through them; the nodes themselves are never touched.
-    if (model.available()) {
-      say('Naming places...');
-      const places = await generatePlaceNames({
-        setup, model, faultsIn, persona: buildPersona(chosen, lex.lexicon),
-      });
-      if (places.problems.length) console.warn('Obscura places:', places.problems);
-      const st = deps.state
-        || (typeof window !== 'undefined' && window.SugarCube && window.SugarCube.State);
-      if (st && st.variables) st.variables[PLACES_KEY] = places.names;
-    }
 
     // A small, bounded summary of what this build actually did. Not the world
     // itself - that is megabytes and would pin it in memory for the session.
@@ -203,9 +237,8 @@ export async function startBuild(premise, progressId, done, deps = {}) {
         referencesResolved: built.referencesResolved || 0,
         tables: Object.keys(built.world).length,
         problems: built.problems.length,
-        textProblems: (built.textProblems || []).length,
-        leftovers: built.leftovers,
-        text: generator && generator.stats ? Object.assign({}, generator.stats) : null,
+        planned: plan.length,
+        names: nameLists ? lex.names : 'the engine\'s own',
         model: model && model.stats ? Object.assign({}, model.stats) : null,
       };
     }
@@ -217,6 +250,11 @@ export async function startBuild(premise, progressId, done, deps = {}) {
     const st = deps.state
       || (typeof window !== 'undefined' && window.SugarCube && window.SugarCube.State);
     const vars = st && st.variables;
+    // SugarCube gives every move a NEW variables object (momentActivate
+    // clones the moment), so `vars` is only the state until the player
+    // enters the world. Anything that lands later - places, the cast - is
+    // written through this, into the moment the player is in when it lands.
+    const live = () => (st && st.variables) || vars;
     const worldId = deps.worldId || newWorldId();
     if (vars) {
       vars[WORLD_ID_KEY] = worldId;
@@ -224,11 +262,14 @@ export async function startBuild(premise, progressId, done, deps = {}) {
       vars[EVENTS_KEY] = {};
     }
     markWorldApplied(worldId);
+    stepTo('save');
     const store = deps.store || sharedStore();
     try {
       const saved = await persistWorld(store, worldId, built.world, {
-        premise: chosen, lexicon: lex.lexicon, builtAt: Date.now(),
+        premise: chosen, lexicon: lex.lexicon, builtAt: Date.now(), logs: [PLAN_LOG, WRITES_LOG],
       });
+      await store.saveTable(worldId, PLAN_LOG, plan);
+      await store.saveTable(worldId, WRITES_LOG, {});
       built.persisted = { worldId, tables: saved.length };
     } catch (err) {
       // Playable now, gone on reload - which the player must be told, not
@@ -246,16 +287,65 @@ export async function startBuild(premise, progressId, done, deps = {}) {
         model,
         setup,
         state: st,
-        premise: () => (vars && vars.obscuraPremise) || chosen,
+        premise: () => (live() && live().obscuraPremise) || chosen,
         lexicon: () => getLexicon(deps),
         callsPerDay: deps.idleCallsPerDay,
       });
     }
 
+    // A world brought in is carried by the premise from here on: every later
+    // prompt (the writer, the living world, the painter) reads
+    // $obscuraPremise, and the lore itself - up to 40,000 characters - is
+    // not kept in a save that SugarCube copies into every history moment.
+    if (vars && brief) {
+      vars.obscuraPremise = chosen;
+    }
+    // The people the player brought wait in the save from here (world/cast.mjs).
+    if (vars && brought) {
+      const people = Array.isArray(brought.characters) ? brought.characters : [];
+      vars[CAST_PENDING_KEY] = people.map(c => ({ ...c, from: String(brought.title || '').slice(0, 90) }));
+      vars.obscuraImport = { title: String(brought.title || '').slice(0, 90), characters: people.length };
+    }
+
     say('Ready.');
-    if (typeof done === 'function') done(built);
+    // The player enters when they choose to - or by themselves in a moment if
+    // nobody is mid-game on the build screen. Places and the writer start now
+    // either way.
+    const enterWorld = () => { if (typeof done === 'function') done(built); };
+    const shown = ui();
+    if (shown) shown.ready(enterWorld); else enterWorld();
+
+    // The geography, after the hand-over. The map is carried whole, so
+    // without this every place keeps the original's name - Blodgett
+    // Gymnasium in a rain-dark city. Places are shown from the hub on, and
+    // character creation takes longer than this one call; named up front it
+    // was 118 of 141 seconds of waiting (perchance.org, 2026-09-23). Asked
+    // before the writer starts, so it is first in the queue.
+    if (model.available()) {
+      nameThePlaces({ setup, model, persona: buildPersona(chosen, lex.lexicon), live, SugarCube: deps.SugarCube });
+    }
+
+    // The people the player brought: read onto the engine's closed sets in
+    // the background, and made into people at the first real place, when the
+    // engine's own population exists (installCastHook).
+    if (model.available() && unmapped(vars && vars[CAST_PENDING_KEY]).length) {
+      mapPending({ model, premise: chosen, sets: castSets(setup), vars: live })
+        .catch((err) => console.warn('Obscura: the characters could not be read', err));
+    }
+
+    // The rest of the world is written from here on, while the player picks a
+    // name and plays.
+    if (model.available() && plan.length) {
+      startWriter({
+        model, setup, plan, writes: {}, worldId, store, document: doc,
+        premise: () => (live() && live().obscuraPremise) || chosen,
+        lexicon: () => getLexicon(deps),
+        jQuery: deps.jQuery,
+      });
+    }
     return built;
   } catch (err) {
+    if (screen) screen.destroy();
     say(`World build failed: ${err && err.message ? err.message : String(err)}`);
     console.error('Obscura world build failed', err);
     throw err;
@@ -278,6 +368,129 @@ export async function loadAssetManifest(base, fetchFn) {
   } catch {
     return [];
   }
+}
+
+// Names the places in the background and shows them the moment they land:
+// the names live in a story variable, and a location on screen is shown again.
+function nameThePlaces({ setup, model, persona, live, SugarCube }) {
+  const SC = SugarCube || (typeof window !== 'undefined' ? window.SugarCube : null);
+  return generatePlaceNames({ setup, model, faultsIn, persona, background: true })
+    .then((places) => {
+      if (places.problems.length) console.warn('Obscura places:', places.problems);
+      const v = live();
+      if (v) v[PLACES_KEY] = places.names;
+      try {
+        const tags = SC && SC.Story && SC.State ? SC.Story.get(SC.State.passage).tags : [];
+        if (tags && tags.includes('location') && typeof SC.Engine.show === 'function') SC.Engine.show();
+      } catch { /* nothing on screen to refresh */ }
+      return places;
+    })
+    .catch((err) => { console.warn('Obscura: the places could not be named', err); });
+}
+
+// ONE writer per page (world/writer.mjs), started after a build and again
+// after a restore with what the log says is still unwritten.
+export function startWriter(deps) {
+  const previous = currentWriter();
+  if (previous) previous.stop();
+  const generator = new AiGenerator({
+    model: deps.model,
+    lexicon: deps.lexicon ? deps.lexicon() : {},
+    fieldsPerPrompt: WRITER_FIELDS_PER_CALL,
+  });
+  const writer = createWriter({
+    model: deps.model,
+    generator,
+    root: () => deps.setup,
+    premise: deps.premise,
+    plan: deps.plan,
+    writes: deps.writes || {},
+    save: (writes) => deps.store.saveTable(deps.worldId, WRITES_LOG, writes),
+    onProgress: (p) => showWriting(p, deps.document),
+  });
+  setCurrentWriter(writer);
+  if (typeof window !== 'undefined') window.ObscuraWriter = writer;
+  installSeenHooks(deps);
+  writer.start();
+  return writer;
+}
+
+// The hub's line, updated in place as the writer goes.
+function showWriting(progress, doc) {
+  const d = doc || (typeof document !== 'undefined' ? document : null);
+  const el = d && typeof d.getElementById === 'function' ? d.getElementById('ob-writing') : null;
+  if (!el) return;
+  const line = writingLine(progress);
+  el.textContent = line;
+  if (!line && el.style) el.style.display = 'none';
+}
+
+// A screen the player opens moves its tables to the front of the writer's
+// queue: the Inventory's items, the Character screen's traits.
+let seenHooked = false;
+function installSeenHooks(deps = {}) {
+  if (seenHooked) return;
+  const doc = deps.document || (typeof document !== 'undefined' ? document : null);
+  if (!doc) return;
+  const $ = deps.jQuery !== undefined ? deps.jQuery : (typeof window !== 'undefined' ? window.jQuery : null);
+  const note = (name) => { const w = currentWriter(); if (w) w.seen(tablesForScreen(name)); };
+  const onDialog = () => {
+    const t = typeof doc.getElementById === 'function' ? doc.getElementById('ui-dialog-title') : null;
+    note(t && t.textContent);
+  };
+  const onPassage = (ev) => note(ev && ev.passage && ev.passage.title);
+  if ($) {
+    $(doc).on(':dialogopened', onDialog);
+    $(doc).on(':passagedisplay', onPassage);
+  } else if (typeof doc.addEventListener === 'function') {
+    doc.addEventListener(':dialogopened', onDialog);
+    doc.addEventListener(':passagedisplay', onPassage);
+  }
+  seenHooked = true;
+}
+
+// The World tab in Options: where the writing is, and pause / carry on.
+let writerPaused = false;
+export function installWriterControls(deps = {}) {
+  const SC = deps.SugarCube || (typeof window !== 'undefined' ? window.SugarCube : null);
+  if (!SC || !SC.setup) return false;
+  SC.setup.ob_writer_status = () => writerStatus(currentWriter(), writerPaused);
+  SC.setup.ob_writer_pause = (on) => {
+    const w = currentWriter();
+    writerPaused = !!on && !!w;
+    if (!w) return;
+    if (on) w.stop(); else w.start();
+  };
+  return true;
+}
+
+// People the player brought join the world at the first place with a
+// population to join: a location passage, after character creation.
+let castHooked = false;
+export function installCastHook(deps = {}) {
+  if (castHooked) return true;
+  const SC = deps.SugarCube || (typeof window !== 'undefined' ? window.SugarCube : null);
+  const doc = deps.document || (typeof document !== 'undefined' ? document : null);
+  if (!SC || !doc) return false;
+  const $ = deps.jQuery !== undefined ? deps.jQuery : (typeof window !== 'undefined' ? window.jQuery : null);
+  const arrive = (ev) => {
+    const tags = (ev && ev.passage && ev.passage.tags) || [];
+    if (!tags.includes('location')) return;
+    const names = joinPending(SC.setup, SC.State.variables);
+    if (names.length) console.info('Obscura: joined the world:', names);
+  };
+  if ($) $(doc).on(':passagedisplay', arrive);
+  else if (typeof doc.addEventListener === 'function') doc.addEventListener(':passagedisplay', arrive);
+  castHooked = true;
+  return true;
+}
+
+// The net under the writer's blanks (world/guard.mjs), installed at boot.
+let guard = null;
+export function installGuardHook(deps = {}) {
+  if (guard) return guard;
+  try { guard = installGuard(deps); } catch (err) { console.warn('Obscura: the guard could not start', err); }
+  return guard;
 }
 
 // ONE living world per page. It is started after a build and again when a
@@ -318,7 +531,17 @@ export function installWorldRestore(deps = {}) {
     setup: setupOf,
     state: varsOf,
     apply: applyWorld,
-    afterApply: ({ setup, vars }) => {
+    afterApply: ({ setup, vars, logs }) => {
+      // What the writer wrote goes back FIRST; what it had not reached is
+      // blank again (the chassis put its placeholders back on load). First,
+      // because the living world's growth is cloned from existing records: a
+      // clone replayed before this copied blank fields - the walk counted
+      // twenty written fields gone after a reload.
+      const plan = logs && Array.isArray(logs[PLAN_LOG]) ? logs[PLAN_LOG] : null;
+      const writes = logs && logs[WRITES_LOG] && typeof logs[WRITES_LOG] === 'object' ? logs[WRITES_LOG] : {};
+      const remaining = plan ? replayWriting(setup, plan, writes) : [];
+      // `setup` came back from the chassis: the world's words go back on its tables
+      applyLexiconToTables(setup, getLexicon(deps));
       // A restored world can carry event records the shipped passages do not
       // have, and the save's own additions must go back on top of it.
       const pruned = pruneDanglingEvents(setup, has);
@@ -326,16 +549,32 @@ export function installWorldRestore(deps = {}) {
       const grown = replayGrowth(setup, vars && vars[GROWTH_KEY]);
       const plugin = deps.plugin || findPlugin('ai', deps.scope);
       if (plugin) {
+        const model = sharedModel({ plugin });
         startLivingWorld({
           ...deps,
-          model: sharedModel({ plugin }),
+          model,
           setup,
           state: deps.state || (SC && SC.State),
           premise: () => (varsOf() || {}).obscuraPremise || '',
           lexicon: () => getLexicon(deps),
         });
+        // people still waiting on their answer when the page went away
+        if (unmapped(vars && vars[CAST_PENDING_KEY]).length) {
+          mapPending({ model, premise: () => (varsOf() || {}).obscuraPremise || '', sets: castSets(setup), vars: varsOf })
+            .catch((err) => console.warn('Obscura: the characters could not be read', err));
+        }
+        if (remaining.length) {
+          startWriter({
+            model, setup, plan, writes, store: deps.store || sharedStore(),
+            worldId: vars && vars[WORLD_ID_KEY],
+            document: deps.document,
+            premise: () => (varsOf() || {}).obscuraPremise || '',
+            lexicon: () => getLexicon(deps),
+            jQuery: deps.jQuery,
+          });
+        }
       }
-      return { pruned: pruned.removed, events, grown };
+      return { pruned: pruned.removed, events, grown, unwritten: remaining.length };
     },
     rerender: deps.rerender || (() => { try { SC.Engine.show(); } catch { /* nothing on screen yet */ } }),
     reload: deps.reload || (() => { if (typeof window !== 'undefined') window.location.reload(); }),

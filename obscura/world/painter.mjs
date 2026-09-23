@@ -25,6 +25,7 @@ import { placesIn, exitsOf } from './hub.mjs';
 import { displayName } from './places.mjs';
 import { WORLD_ID_KEY } from './durable.mjs';
 import { parseModelJson } from './safejson.mjs';
+import { quietFor } from './ai-text.mjs';
 
 export const STYLE = 'isometric pixel art game asset, a small cutaway diorama of one place seen from above at an '
   + 'angle, diamond-shaped floor, clean dark pixel outlines, flat bright colours, simple shading, centred, plain '
@@ -366,7 +367,9 @@ export function installPainter(deps = {}) {
     },
     process: (src, job) => (deps.process || processPicture)(src, doc, job && job.frame),
     cache,
-    isIdle: () => !model || typeof model.idle !== 'function' || model.idle(),
+    // Only what a player waits on holds painting back; the background writer
+    // keeps the text queue busy for an hour and must not starve the pictures.
+    isIdle: () => quietFor(model),
     ...(deps.painterOptions || {}),
   });
   const looks = createLooks({

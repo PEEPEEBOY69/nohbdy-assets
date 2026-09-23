@@ -91,11 +91,19 @@ export function singleWordAt(source, path) {
   }
   if (!node || typeof node !== 'object') return false;
   const last = parts[parts.length - 1];
-  // Prefer the exact original; otherwise judge by its siblings.
   const exact = node[last];
-  const samples = (typeof exact === 'string' ? [exact] : [])
-    .concat(Object.values(node).filter((v) => typeof v === 'string'))
-    .filter((v) => v && !isPlaceholder(v))
+  // Stripped prose is prose, whatever is next to it. The chassis only ever
+  // stripped the original's writing.
+  if (typeof exact === 'string' && /unwritten #\d+/.test(exact)) return false;
+  if (typeof exact === 'string' && exact && !isPlaceholder(exact)) return !/\s/.test(exact);
+  // Only a POOL is judged by its members: a list, or an object keyed by index.
+  // A record's other fields are different fields - a description beside
+  // `slot: "floor"` was ruled one word, and the model was refused every
+  // sentence it wrote.
+  const isPool = Array.isArray(node) || Object.keys(node).every((k) => /^\d+$/.test(k));
+  if (!isPool) return false;
+  const samples = Object.values(node)
+    .filter((v) => typeof v === 'string' && v && !isPlaceholder(v))
     .slice(0, 8);
   if (!samples.length) return false;
   return samples.every((v) => !/\s/.test(v));
@@ -190,8 +198,10 @@ export function checkReplacement(field, replacement, opts = {}) {
   return null;
 }
 
+// A path is a dot-joined string, or - where a key can contain a dot (a book
+// titled "vol. 1: ...") - the exact list of keys.
 function setPath(root, path, value) {
-  const parts = path.split('.');
+  const parts = Array.isArray(path) ? path : path.split('.');
   let node = root;
   for (let i = 0; i < parts.length - 1; i++) {
     node = node && node[parts[i]];
@@ -223,8 +233,7 @@ export class AiGenerator {
     const built = this.base.generate(spec);
     if (built.problems.length) return built;
 
-    const found = findPlaceholders(built.data);
-    for (const f of found) f.singleWord = singleWordAt(spec.source, f.path);
+    const found = this.plan(spec, built.data);
     // Bounded on purpose. Calls are strictly sequential, so an unbounded field
     // count is an unbounded wait before the player can start. What is left
     // keeps its placeholder, which is playable, and can be written lazily.
@@ -233,25 +242,42 @@ export class AiGenerator {
     this.stats.deferred += found.length - fields.length;
     if (!fields.length || !this.model.available()) return built;
 
+    const problems = await this.fill(spec, built.data, fields);
+    // Problems here are reported but never fatal: a world with some
+    // placeholders left is playable, a world that failed to build is not.
+    return { data: built.data, problems: built.problems, textProblems: problems };
+  }
+
+  // What there is to write in a table's data: every placeholder, with whether
+  // the original says it is one word.
+  plan(spec, data) {
+    const found = findPlaceholders(data);
+    for (const f of found) f.singleWord = singleWordAt(spec.source, f.path);
+    return found;
+  }
+
+  // Writes the given fields into `data`, batch by batch, one call at a time.
+  // The background writer calls this directly, with fields it planned at build
+  // time; `spec` needs only { table, premise }. `used` is shared across calls
+  // so distinctness holds for a pool written over several visits. Returns the
+  // problems; never throws for a text failure.
+  async fill(spec, data, fields, used = new Map(), callOpts = {}) {
     const problems = [];
     // Shared across batches, so distinctness holds for a pool split over
     // several prompts, and seeded with the values already in the data so the
     // model cannot collide with one it was never shown.
-    const used = new Map();
     for (const f of fields) {
       if (!used.has(f.group)) used.set(f.group, new Set());
     }
     for (let i = 0; i < fields.length; i += this.fieldsPerPrompt) {
       const batch = fields.slice(i, i + this.fieldsPerPrompt);
       batch.forEach((f, n) => { f.id = n + 1; });
-      await this.#writeBatch(spec, built.data, batch, problems, used);
+      await this.#writeBatch(spec, data, batch, problems, used, callOpts);
     }
-    // Problems here are reported but never fatal: a world with some
-    // placeholders left is playable, a world that failed to build is not.
-    return { data: built.data, problems: built.problems, textProblems: problems };
+    return problems;
   }
 
-  async #writeBatch(spec, data, batch, problems, used) {
+  async #writeBatch(spec, data, batch, problems, used, callOpts = {}) {
     let errors = [];
     for (let attempt = 0; attempt <= this.retries; attempt++) {
       const prompt = buildPrompt(spec.premise, spec.table, batch, {
@@ -267,7 +293,13 @@ export class AiGenerator {
       this.stats.batches += 1;
       let reply;
       try {
-        reply = await this.model.ask(prompt, { maxTokens: 60 + batch.length * 70 });
+        // A one-word field is a few tokens; asking room for a sentence per
+        // name only let a slow model take longer.
+        const perField = (f) => (f.singleWord ? 16 : 70);
+        reply = await this.model.ask(prompt, {
+          ...callOpts,
+          maxTokens: 60 + batch.reduce((n, f) => n + perField(f), 0),
+        });
       } catch (err) {
         problems.push(`${spec.table}: ${err.message}`);
         this.stats.fallbacks += 1;

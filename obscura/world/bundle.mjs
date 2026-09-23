@@ -11,10 +11,16 @@ export {
   startBuild, harvestTables, loadKeySets, NO_MODEL_MESSAGE,
   setLexicon, getLexicon, installLexiconHook, installHubHook, installEventsHook, installPlacesHook,
   loadAssetManifest, installWorldRestore, startLivingWorld, markWorldApplied, worldMissing,
-  installPainterHook, installSidebarHook, installPhoneHook,
+  installPainterHook, installSidebarHook, installPhoneHook, startWriter, installGuardHook, installWriterControls,
+  installCastHook,
 } from './flow.mjs';
+export { readImport, characterFromCard, loreFromJson, loreFromText, cardTextFromPng, worldBriefFrom } from './imports.mjs';
+export { castSets, buildCastPrompt, parseCast, castName, addCastMember, mapPending, joinPending, settleIn, CAST_KEY, CAST_PENDING_KEY } from './cast.mjs';
+export { EXAMPLES, createPremiseScreen, installPremiseHook, buildPayload, charactersFromText } from './premise.mjs';
+export { readPrefs, applyPrefs, setTextSize, setReduceMotion, installPrefs, TEXT_SIZES } from './prefs.mjs';
 export { phoneHome, phoneContacts, phoneCalendar, knownPeople, installPhone } from './phone.mjs';
-export { decorateSidebar, installSidebar, iconKey, ICONS } from './sidebar.mjs';
+export { decorateSidebar, installSidebar, iconKey, ICONS, addCommunityButtons } from './sidebar.mjs';
+export { createCommunity, installCommunity, openFeedback, openComments, feedbackPayload } from './community.mjs';
 export {
   createPainter, createLooks, installPainter, paintPrompt, buildLooksPrompt, parseLooks,
   pictureKey, lookKey, processPicture, STYLE as PAINT_STYLE, NEGATIVE as PAINT_NEGATIVE,
@@ -46,10 +52,18 @@ export {
   generateLexicon, install as installLexicon,
 } from './lexicon.mjs';
 export { AiGenerator, findPlaceholders, isPlaceholder, singleWordAt } from './ai-generator.mjs';
-export { createModel, sharedModel, estimateTokens, PROMPT_TOKEN_BUDGET } from './ai-text.mjs';
+export { createModel, sharedModel, estimateTokens, quietFor, callTimeoutMs, PROMPT_TOKEN_BUDGET } from './ai-text.mjs';
 export { findPlugin } from './plugins.mjs';
-export { sweepLeftovers } from './leftovers.mjs';
+export {
+  planWorld, planChassis, replayWriting, createWriter, currentWriter, writingLine, formatEta,
+  tablesForScreen, WRITE_ORDER, PLAN_LOG, WRITES_LOG, writerStatus,
+} from './writer.mjs';
+export { scrub, scrubTree, installGuard } from './guard.mjs';
+export { namesFit, buildNamesPrompt, parseNameLists, applyNameLists, generateNames } from './names.mjs';
+export { createSnake, turn as snakeTurn, tick as snakeTick } from './snake.mjs';
+export { createBuildScreen, timeline as buildTimeline, BUILD_STEPS } from './buildscreen.mjs';
 export {
   newMemory, remember, compact, contextFor, feelTowards,
   MEMORY_KEEP_RECENT, MEMORY_WEIGHT_KEEP,
 } from './memory.mjs';
+export { installRecall, recordShift, memoryOf, memoryLines, latestLine, recallHere, profileSections, describeShift, MEMORY_KEY } from './recall.mjs';

@@ -87,7 +87,15 @@ export async function loadWorld(store, id) {
     const t = await store.loadTable(id, name);
     if (t !== undefined && t !== null) world[name] = t;
   }
-  return { meta, world };
+  // The writer's plan and log (world/writer.mjs) are stored beside the tables
+  // under the names meta.logs lists. They come back with the world and are
+  // never applied to `setup` as tables.
+  const logs = {};
+  for (const name of Array.isArray(meta.logs) ? meta.logs : []) {
+    const l = await store.loadTable(id, name);
+    if (l !== undefined && l !== null) logs[name] = l;
+  }
+  return { meta, world, logs };
 }
 
 // deps: store, setup(), state() -> story variables, apply(setup, world),

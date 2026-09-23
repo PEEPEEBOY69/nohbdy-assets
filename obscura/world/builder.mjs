@@ -118,7 +118,16 @@ export async function buildWorld(tables, opts = {}) {
   // generated alone, so a weighted list can still name a key another table's
   // cap removed - and the engine spins or throws on a dangling name rather
   // than degrading.
-  const remap = remapWorld(world, tables, { keySpace: machineryKeys });
+  // A table the build did not generate keeps its original keys in the running
+  // game (the outfits, the name lists, the colour table, carried whole), so
+  // those are its key space. Without this every reference into one read as
+  // "generated no keys": 123 false problems on every build.
+  const kept = {};
+  for (const [n, t] of Object.entries(tables)) {
+    if (n in world || !t || typeof t !== 'object' || Array.isArray(t)) continue;
+    kept[n] = Object.keys(t);
+  }
+  const remap = remapWorld(world, tables, { keySpace: { ...kept, ...machineryKeys } });
   problems.push(...remap.problems);
 
   // Records the engine names by key keep the original's structure and take
@@ -193,6 +202,29 @@ export async function buildWorld(tables, opts = {}) {
 // So: build a fresh object, carry the functions across, then swap. Machinery
 // namespaces are handled member by member, because replacing one wholesale
 // wipes the engine it is made of.
+// The engine's functions INSIDE a record win too, not only those riding on
+// the table. A world is plain data - it is what IndexedDB stores - so a
+// function inside a record (a turn-on's condition, a badge's condition, a
+// simulation step's prefilter) arrived as whatever stood in for it, and the
+// engine called that: "tinfo.condition is not a function" on every profile
+// with a turn-on (2026-09-23). Copies, never edits: the world passed in is
+// what gets stored. Arrays are left alone - a generated list need not line
+// up with the original's by position.
+export function withEngineFunctions(gen, orig, depth = 0) {
+  if (depth > 8 || !gen || !orig || typeof gen !== 'object' || typeof orig !== 'object') return gen;
+  if (Array.isArray(gen) || Array.isArray(orig)) return gen;
+  let out = gen;
+  const put = (k, v) => { if (out === gen) out = { ...gen }; out[k] = v; };
+  for (const [k, ov] of Object.entries(orig)) {
+    if (typeof ov === 'function') { if (out[k] !== ov) put(k, ov); continue; }
+    if (ov && typeof ov === 'object' && gen[k] && typeof gen[k] === 'object') {
+      const merged = withEngineFunctions(gen[k], ov, depth + 1);
+      if (merged !== gen[k]) put(k, merged);
+    }
+  }
+  return out;
+}
+
 export function applyWorld(setup, world) {
   let tables = 0, members = 0, methods = 0;
   for (const [name, generated] of Object.entries(world)) {
@@ -202,7 +234,7 @@ export function applyWorld(setup, world) {
     if (classify(original) === 'machinery') {
       for (const [k, v] of Object.entries(generated)) {
         if (typeof original[k] === 'function') continue;
-        original[k] = v;
+        original[k] = withEngineFunctions(v, original[k]);
         members++;
       }
       continue;
@@ -211,7 +243,7 @@ export function applyWorld(setup, world) {
     if (Array.isArray(generated)) { setup[name] = generated; tables++; continue; }
 
     const next = Array.isArray(generated) ? [] : {};
-    for (const [k, v] of Object.entries(generated)) next[k] = v;
+    for (const [k, v] of Object.entries(generated)) next[k] = withEngineFunctions(v, original[k]);
     // The engine's own functions always win. The generator fills a field
     // typed as a function with a stub that returns undefined, and a freshly
     // built world kept the stub wherever it used the same key: the People

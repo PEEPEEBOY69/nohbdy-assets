@@ -68,6 +68,9 @@ export const CARRIED_WHOLE = [
   'ob_dye_hair_colors', 'ob_dye_hair_colors_simple',
   'ob_hairlengths', 'ob_hairlengths_updo',
   'ob_color_table',
+  // The engine's own name lists: ob_random_name draws from them, and a model
+  // rewriting them only lengthened the build.
+  'ob_names',
 ];
 
 export function assignTiers(tables, opts = {}) {

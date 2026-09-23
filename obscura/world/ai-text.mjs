@@ -35,32 +35,73 @@ export function resolvePlugin(scope) {
   return findPlugin('ai', scope);
 }
 
+// The watchdog. The plugin works in an iframe behind Turnstile and a call can
+// simply never settle; with one call at a time, one such call stalled
+// everything queued behind it, forever. Sized from a measurement on
+// perchance.org (2026-09-23): a 40-field batch asking for 2,860 tokens took
+// 66 s, a small call 4 s. This allows well over double.
+export function callTimeoutMs(maxTokens) {
+  return 45000 + Math.max(0, Number(maxTokens) || 0) * 40;
+}
+
+// Whether background work may start: nothing a player is waiting on is queued.
+// Painting and the living world ask this; the background writer's own calls
+// never make it false.
+export function quietFor(model) {
+  if (!model) return true;
+  if (typeof model.foregroundIdle === 'function') return model.foregroundIdle();
+  return typeof model.idle !== 'function' || model.idle();
+}
+
 export function createModel(opts = {}) {
   const plugin = opts.plugin || resolvePlugin(opts.scope);
   const budget = opts.budget ?? PROMPT_TOKEN_BUDGET;
   // One chain. The tail must never reject, or every later call inherits the
   // failure - a lesson already paid for in BlizzardUI.
   let chain = Promise.resolve();
-  const stats = { calls: 0, refused: 0, failed: 0, maxConcurrent: 0, background: 0 };
+  const stats = { calls: 0, refused: 0, failed: 0, timedOut: 0, maxConcurrent: 0, background: 0 };
   let inFlight = 0;
   // Everything waiting on the single chain, not just what is executing. The
   // background world builder asks this before it schedules anything: with one
   // shared iframe there is no way to run alongside a call the player is
   // waiting on, so the only correct answer is not to start one.
   let queued = 0;
+  // What a player is waiting on, counted apart. The background writer keeps
+  // the queue busy for an hour; painting and the living world wait only for
+  // THIS to be empty, or they would starve behind it.
+  let queuedForeground = 0;
 
   async function run(instruction, callOpts) {
     inFlight += 1;
     stats.maxConcurrent = Math.max(stats.maxConcurrent, inFlight);
     try {
       stats.calls += 1;
+      const maxTokens = callOpts.maxTokens ?? 700;
       const request = plugin({
         instruction,
         temperature: callOpts.temperature ?? 0.8,
-        maxTokens: callOpts.maxTokens ?? 700,
+        maxTokens,
         stopSequences: callOpts.stopSequences ?? ['\n\nTASK:', '\n\nSHAPE:'],
       });
-      const result = request && typeof request.then === 'function' ? await request : request;
+      let result = request;
+      if (request && typeof request.then === 'function') {
+        const limit = callOpts.timeoutMs ?? opts.timeoutMs ?? callTimeoutMs(maxTokens);
+        let timer = null;
+        const watchdog = new Promise((resolve, reject) => {
+          timer = setTimeout(() => {
+            stats.timedOut += 1;
+            // stop() on a dead sandbox iframe throws cross-origin; it is
+            // called once and its failure is not ours to report.
+            try { if (typeof request.stop === 'function') request.stop(); } catch { /* already gone */ }
+            reject(new Error(`the model did not answer in ${Math.round(limit / 1000)}s`));
+          }, limit);
+        });
+        try {
+          result = await Promise.race([request, watchdog]);
+        } finally {
+          clearTimeout(timer);
+        }
+      }
       // The plugin returns either a string or an object carrying generatedText.
       return String(result && result.generatedText !== undefined ? result.generatedText : result || '');
     } finally {
@@ -75,6 +116,7 @@ export function createModel(opts = {}) {
     // declines to schedule otherwise, which is the whole of the idle-only
     // policy: it cannot preempt, so it must not compete.
     idle: () => queued === 0,
+    foregroundIdle: () => queuedForeground === 0,
     pending: () => queued,
     async ask(instruction, callOpts = {}) {
       if (typeof plugin !== 'function') {
@@ -88,7 +130,9 @@ export function createModel(opts = {}) {
         throw err;
       }
       queued += 1;
-      if (callOpts.background) stats.background += 1;
+      const foreground = !callOpts.background;
+      if (foreground) queuedForeground += 1;
+      else stats.background += 1;
       const mine = chain.then(() => run(instruction, callOpts));
       chain = mine.then(() => undefined, () => undefined);
       try {
@@ -98,6 +142,7 @@ export function createModel(opts = {}) {
         throw err;
       } finally {
         queued -= 1;
+        if (foreground) queuedForeground -= 1;
       }
     },
   };

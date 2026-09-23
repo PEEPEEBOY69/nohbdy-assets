@@ -18,7 +18,10 @@
 import { parseModelJson } from './safejson.mjs';
 
 export const STATE_KEY = 'obscuraPlaceNames';
-export const PLACES_PER_CALL = 30;
+// One call for a whole world's places: on perchance.org a call costs 20-30 s
+// whatever its size (measured 2026-09-23), so four small calls were most of
+// the wait before a player could start.
+export const PLACES_PER_CALL = 40;
 export const MAX_NAME = 40;
 
 export function placeRoster(setup) {
@@ -107,7 +110,9 @@ export async function generatePlaceNames(opts) {
     for (const p of batch) taken.delete(p.name.toLowerCase());
     let reply;
     try {
-      reply = await model.ask(buildPlacesPrompt(persona, batch), { maxTokens: 60 + batch.length * 16, temperature: 0.9 });
+      reply = await model.ask(buildPlacesPrompt(persona, batch), {
+        maxTokens: 60 + batch.length * 16, temperature: 0.9, background: !!opts.background,
+      });
     } catch (err) {
       problems.push(`places: ${err && err.message ? err.message : String(err)}`);
       for (const p of batch) taken.add(p.name.toLowerCase());

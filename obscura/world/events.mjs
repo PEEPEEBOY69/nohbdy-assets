@@ -38,6 +38,13 @@ export function pruneDanglingEvents(setup, hasPassage) {
 }
 
 // A free slot is one no authored event is using yet.
+export const AUTHORED_TAGS = ['obscura'];
+export const AUTHORED_FREQUENCY = 10;
+
+export function authoredRecord(slot) {
+  return { passage: slot, tags: [...AUTHORED_TAGS], frequency: AUTHORED_FREQUENCY, obscuraAuthored: true };
+}
+
 export function freeSlot(store, count = EVENT_SLOTS) {
   for (const name of slotNames(count)) {
     if (!store || !store[name]) return name;
@@ -46,12 +53,14 @@ export function freeSlot(store, count = EVENT_SLOTS) {
 }
 
 // Registers an authored event: the text goes in state, and a record pointing
-// at that slot's passage goes in the chassis's own table, so the existing
-// picker surfaces it with no changes to the picker.
+// at that slot's passage goes in the chassis's own table, so the chassis's own
+// picker - frequencies, recency, all of it - chooses it.
 //
-// `tags` and `frequency` are COPIED from a real record rather than invented -
-// the same clone-the-shape rule the rest of the project runs on. A tag set the
-// engine never queries is an event that can never fire.
+// A tag set nothing queries is an event that can never fire. The first version
+// copied the tags of whichever real record came first, and nothing ever asked
+// for those in the main loop. Authored events now carry the tag the hub asks
+// for on every arrival (world/hub.mjs rollHubEvent), so time passing is what
+// brings them.
 export function registerAuthoredEvent(setup, state, event, opts = {}) {
   const ev = setup && setup.ob_events;
   if (!ev || !Array.isArray(ev.db)) return { error: 'no event table' };
@@ -64,41 +73,24 @@ export function registerAuthoredEvent(setup, state, event, opts = {}) {
   const slot = freeSlot(store, opts.slots ?? EVENT_SLOTS);
   if (!slot) return { error: 'every event slot is in use' };
 
-  // Copy the shape of an existing record so the tags are ones the engine
-  // actually queries. With none to copy, the event cannot be placed.
-  const model = ev.db.find(e => e && Array.isArray(e.tags) && e.tags.length);
-  if (!model) return { error: 'no existing event to take tags from' };
-
   store[slot] = { title: String(event.title || '').trim() || null, text };
-  ev.db.push({
-    passage: slot,
-    tags: [...model.tags],
-    frequency: typeof model.frequency === 'number' ? model.frequency : 10,
-    obscuraAuthored: true,
-  });
-  return { slot, tags: [...model.tags], error: null };
+  ev.db.push(authoredRecord(slot));
+  return { slot, tags: [...AUTHORED_TAGS], error: null };
 }
 
 // A reload rebuilds `setup` from the chassis: the records registered above are
 // gone while their text is still in the save. This puts one record back for
-// every slot the save uses, with its tags copied exactly as registration does.
-// Idempotent - a slot that already has a record is left alone.
+// every slot the save uses, exactly as registration makes it. Idempotent - a
+// slot that already has a record is left alone.
 export function restoreAuthoredEvents(setup, state) {
   const ev = setup && setup.ob_events;
   const store = state && state[STATE_KEY];
   if (!ev || !Array.isArray(ev.db) || !store || typeof store !== 'object') return 0;
-  const model = ev.db.find(e => e && Array.isArray(e.tags) && e.tags.length && !e.obscuraAuthored);
-  if (!model) return 0;
   let added = 0;
   for (const slot of slotNames()) {
     if (!store[slot]) continue;
     if (ev.db.some(e => e && e.passage === slot)) continue;
-    ev.db.push({
-      passage: slot,
-      tags: [...model.tags],
-      frequency: typeof model.frequency === 'number' ? model.frequency : 10,
-      obscuraAuthored: true,
-    });
+    ev.db.push(authoredRecord(slot));
     added += 1;
   }
   return added;

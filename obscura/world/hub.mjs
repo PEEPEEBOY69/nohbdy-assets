@@ -134,6 +134,14 @@ export function hubHtml(setup, V, opts = {}) {
       lines.push(`<div class="ob-hub-picture" style="margin:0 0 0.8em">`
         + `<img data-ob-place="${esc(here.key)}" src="${esc(`${opts.pictureBase}${file}.png`)}" alt=""`
         + ` style="width:256px;max-width:100%;height:auto;image-rendering:pixelated"></div>`);
+      // Only offered where there is a painter to switch. A plain control, not
+      // a passage link: the hub numbers its links as hotkeys, and the switch
+      // took [1] from the first exit and looked like a place to go.
+      if (opts.paint && opts.paint.available) {
+        lines.push(`<div class="ob-hub-paint">Pictures painted for this world: ${opts.paint.on ? 'on' : 'off'} `
+          + `<span class="ob-hub-paint-toggle" role="button" tabindex="0" `
+          + `onclick="SugarCube.setup.ob_obscura_paint_toggle()">${opts.paint.on ? 'turn off' : 'turn on'}</span></div>`);
+      }
     }
   }
   lines.push(`<div class="ob-hub-place"><b>${esc(name)}</b></div>`);
@@ -205,6 +213,35 @@ export function mapsHtml(setup, V = {}, opts = {}) {
   return out.join('');
 }
 
+// Random events in the main loop. The original's location passages each asked
+// the event picker for their own events; the hub asked for nothing, so nothing
+// the living world wrote could ever happen. It now asks for the authored tag
+// whenever game time has moved since it last asked - travel, waiting, the
+// sidebar's Wait, a night's sleep all count, a redraw of the same moment does
+// not - and rolls the chassis's own base chance first.
+export function minuteOf(V) {
+  const d = Number(V && V.gameday) || 0;
+  const h = Number(V && V.hour) || 0;
+  const m = Number(V && V.minute) || 0;
+  return d * 1440 + h * 60 + m;
+}
+
+export function rollHubEvent(setup, V, rnd = Math.random, tags = ['obscura']) {
+  if (!V || !setup || !setup.ob_events || typeof setup.ob_events.pick !== 'function') return null;
+  const now = minuteOf(V);
+  if (V.obscuraLastRoll === undefined) { V.obscuraLastRoll = now; return null; }
+  if (now <= V.obscuraLastRoll) return null;
+  V.obscuraLastRoll = now;
+  let chance = 1 / 6;
+  try { if (typeof setup.ob_events.base_event_chance === 'function') chance = setup.ob_events.base_event_chance(); } catch { /* the default */ }
+  if (!(rnd() < chance)) return null;
+  let pick = null;
+  try { pick = setup.ob_events.pick(tags); } catch { return null; }
+  if (!pick || !pick.passage) return null;
+  try { if (typeof setup.ob_events.register_event === 'function') setup.ob_events.register_event(pick.passage); } catch { /* recency only */ }
+  return pick.passage;
+}
+
 // The engine-facing half. Installed onto `setup` so a passage can call it by
 // name, which is the only thing passage markup can do.
 export function installHub(deps = {}) {
@@ -221,8 +258,15 @@ export function installHub(deps = {}) {
   setup.ob_obscura_hub = () => hubHtml(setup, V(), {
     pictureBase: pictureBase(),
     notice: typeof deps.notice === 'function' ? deps.notice() : null,
+    paint: typeof deps.paint === 'function' ? deps.paint() : null,
   });
+  setup.ob_obscura_paint_toggle = () => {
+    if (typeof deps.togglePaint === 'function') deps.togglePaint();
+    try { SC.Engine.show(); } catch { /* nothing on screen */ }
+  };
   setup.ob_obscura_maps = () => mapsHtml(setup, V(), { pictureBase: pictureBase(), mapName: deps.mapName });
+  setup.ob_obscura_event = () => rollHubEvent(setup, V(),
+    () => (SC.State && typeof SC.State.random === 'function' ? SC.State.random() : Math.random()));
 
   // $locationblock is the MAP a location belongs to. The chassis reads it 27
   // times - for the location picture, who is here, fast travel - and normally
@@ -234,14 +278,17 @@ export function installHub(deps = {}) {
     if (place) V().locationblock = place.map;
   };
 
-  setup.ob_obscura_go = (to) => {
+  // `minutes` overrides the usual step: the sidebar's class shortcut has
+  // already advanced the clock by the real path length before it calls this.
+  setup.ob_obscura_go = (to, minutes) => {
     const places = placesIn(setup);
     if (!places.has(to)) return false;
     V().location = to;
     setBlock(to);
+    const step = Number.isFinite(minutes) ? minutes : (deps.travelMinutes ?? 15);
     try {
-      if (setup.ob_time && typeof setup.ob_time.advance_time === 'function') {
-        setup.ob_time.advance_time(deps.travelMinutes ?? 15);
+      if (step > 0 && setup.ob_time && typeof setup.ob_time.advance_time === 'function') {
+        setup.ob_time.advance_time(step);
       }
     } catch { /* time is decoration here, not a precondition for moving */ }
     SC.Engine.play('ObscuraHub');

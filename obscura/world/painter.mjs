@@ -20,7 +20,7 @@
 // when the text queue is empty and no other picture is in flight. The current
 // place goes first, then the places one step away.
 import { buildPersona, faultsIn as defaultFaults } from './persona.mjs';
-import { keyOutBackground, alphaBox, fitInto, hardenAlpha, FRAME_W, FRAME_H, SCALE } from './pixels.mjs';
+import { keyOutBackground, alphaBox, fitInto, hardenAlpha, isBlank, FRAME_W, FRAME_H, SCALE } from './pixels.mjs';
 import { placesIn, exitsOf } from './hub.mjs';
 import { displayName } from './places.mjs';
 import { WORLD_ID_KEY } from './durable.mjs';
@@ -166,7 +166,9 @@ function withTimeout(p, ms) {
   let timer;
   return Promise.race([
     Promise.resolve(p).finally(() => clearTimeout(timer)),
-    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`no picture after ${ms} ms`)), ms); }),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(Object.assign(new Error(`no picture after ${ms} ms`), { timeout: true })), ms);
+    }),
   ]);
 }
 
@@ -178,7 +180,7 @@ export function createPainter(deps) {
     isIdle = () => true,
     now = () => Date.now(),
     schedule = (fn, ms) => setTimeout(fn, ms),
-    timeoutMs = 120000,
+    timeoutMs = 150000,
     minGapMs = 4000,
     maxPerSession = 60,
     // How soon to look again when the text model was busy. Short enough that a
@@ -189,12 +191,16 @@ export function createPainter(deps) {
   const memo = new Map();
   const failed = new Set();
   const listeners = new Set();
-  const stats = { started: 0, painted: 0, failed: 0, fromCache: 0, skippedBusy: 0, lastError: null };
+  const stats = { started: 0, painted: 0, failed: 0, retried: 0, fromCache: 0, skippedBusy: 0, lastError: null };
+  const tries = new Map();
   let busy = false;
   let lastStart = -Infinity;
   let timer = null;
 
   const emit = (key, url) => { for (const fn of listeners) { try { fn(key, url); } catch { /* a listener is not our failure */ } } };
+  const failListeners = new Set();
+  const emitFail = (key) => { for (const fn of failListeners) { try { fn(key); } catch { /* as above */ } } };
+  let current = null;
 
   async function lookup(key) {
     if (memo.has(key)) return memo.get(key);
@@ -217,6 +223,7 @@ export function createPainter(deps) {
     const job = [...jobs.values()].sort((a, b) => a.priority - b.priority)[0];
     jobs.delete(job.key);
     busy = true;
+    current = job.key;
     try {
       const hit = await lookup(job.key);
       if (hit) { emit(job.key, hit); return; }
@@ -233,11 +240,23 @@ export function createPainter(deps) {
       stats.painted += 1;
       emit(job.key, url);
     } catch (err) {
-      failed.add(job.key);
-      stats.failed += 1;
       stats.lastError = String(err && err.message ? err.message : err);
+      // A timeout is the service being busy, not a refusal: one more try,
+      // later and behind everything else. Anything else, or a second
+      // timeout, is remembered for the session.
+      const attempts = (tries.get(job.key) || 0) + 1;
+      tries.set(job.key, attempts);
+      if (err && err.timeout && attempts < 2) {
+        stats.retried += 1;
+        jobs.set(job.key, { ...job, priority: job.priority + 50 });
+      } else {
+        failed.add(job.key);
+        stats.failed += 1;
+        emitFail(job.key);
+      }
     } finally {
       busy = false;
+      current = null;
       if (jobs.size) kick(minGapMs);
     }
   }
@@ -248,6 +267,9 @@ export function createPainter(deps) {
     pending: () => jobs.size,
     busy: () => busy,
     onPainted(fn) { listeners.add(fn); return () => listeners.delete(fn); },
+    onFailed(fn) { failListeners.add(fn); return () => failListeners.delete(fn); },
+    // queued or being painted right now
+    working: (key) => jobs.has(key) || current === key,
     request(job) {
       if (!job || !job.key || failed.has(job.key) || memo.has(job.key)) return false;
       const priority = typeof job.priority === 'number' ? job.priority : 9;
@@ -278,6 +300,7 @@ export async function processPicture(src, doc, frame = {}) {
   fctx.drawImage(img, 0, 0);
   const data = fctx.getImageData(0, 0, w, h);
   keyOutBackground(data.data, w, h);
+  if (isBlank(data.data, w, h)) throw new Error('the picture came back blank');
   fctx.putImageData(data, 0, 0);
   const box = alphaBox(data.data, w, h) || { x: 0, y: 0, w, h };
   const fit = fitInto(box.w, box.h, FW - M, FH - M);
@@ -296,6 +319,25 @@ export async function processPicture(src, doc, frame = {}) {
   bctx.imageSmoothingEnabled = false;
   bctx.drawImage(small, 0, 0, big.width, big.height);
   return big.toDataURL('image/png');
+}
+
+// Painting can be turned off, per device: it spends the player's data and the
+// image service's time, and some players will simply prefer the shipped art.
+export const PAINT_SETTING = 'obscura.paint';
+
+export function paintEnabled(storage) {
+  try {
+    const s = storage || (typeof localStorage !== 'undefined' ? localStorage : null);
+    return !s || s.getItem(PAINT_SETTING) !== 'off';
+  } catch { return true; }
+}
+
+export function setPaintEnabled(on, storage) {
+  try {
+    const s = storage || (typeof localStorage !== 'undefined' ? localStorage : null);
+    if (s) s.setItem(PAINT_SETTING, on ? 'on' : 'off');
+  } catch { /* private mode: the choice lasts the session */ }
+  return on;
 }
 
 // The page side. Installed once, at boot, when the lists panel has the
@@ -369,14 +411,25 @@ export function installPainter(deps = {}) {
   };
 
   let lastShown = null;
+  const enabled = deps.enabled || (() => paintEnabled());
+  // While this place is being painted, the hub says so under its picture.
+  const mark = (placeKey, on) => {
+    for (const box of doc.querySelectorAll('.ob-hub-picture')) {
+      const img = box.querySelector && box.querySelector('img[data-ob-place]');
+      if (!img || img.getAttribute('data-ob-place') !== placeKey) continue;
+      if (on) box.setAttribute('data-ob-painting', '1'); else box.removeAttribute('data-ob-painting');
+    }
+  };
   const onPassage = () => {
     const v = vars();
-    if (!v[WORLD_ID_KEY]) return;
+    if (!v[WORLD_ID_KEY] || !enabled()) return;
     const here = info(v.location);
     if (!here) return;
     const k = keyOf(here);
     painter.lookup(k).then((url) => {
-      if (url) { lastShown = [here.key, url]; show(here.key, url); } else painter.request(jobFor(here, 0));
+      if (url) { lastShown = [here.key, url]; show(here.key, url); return; }
+      painter.request(jobFor(here, 0));
+      if (painter.working(k)) mark(here.key, true);
     });
     exitsOf(here.node, places()).slice(0, deps.prefetch ?? 3).forEach((e, i) => {
       const p = info(e);
@@ -410,14 +463,18 @@ export function installPainter(deps = {}) {
     }
   };
   const showMaps = () => {
-    if (!vars()[WORLD_ID_KEY]) return;
+    if (!vars()[WORLD_ID_KEY] || !enabled()) return;
     for (const b of blocks()) painter.lookup(mapKeyOf(b)).then((u) => { if (u) showMap(b, u); });
   };
 
   painter.onPainted((key, url) => {
     const here = info(vars().location);
-    if (here && keyOf(here) === key) { lastShown = [here.key, url]; show(here.key, url); }
+    if (here && keyOf(here) === key) { lastShown = [here.key, url]; show(here.key, url); mark(here.key, false); }
     for (const b of blocks()) if (mapKeyOf(b) === key) showMap(b, url);
+  });
+  painter.onFailed((key) => {
+    const here = info(vars().location);
+    if (here && keyOf(here) === key) mark(here.key, false);
   });
 
   const $ = deps.jQuery !== undefined ? deps.jQuery : (typeof window !== 'undefined' ? window.jQuery : null);

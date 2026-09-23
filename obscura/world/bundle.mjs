@@ -11,8 +11,10 @@ export {
   startBuild, harvestTables, loadKeySets,
   setLexicon, getLexicon, installLexiconHook, installHubHook, installEventsHook, installPlacesHook,
   loadAssetManifest, installWorldRestore, startLivingWorld, markWorldApplied, worldMissing,
-  installPainterHook,
+  installPainterHook, installSidebarHook, installPhoneHook,
 } from './flow.mjs';
+export { phoneHome, phoneContacts, phoneCalendar, knownPeople, installPhone } from './phone.mjs';
+export { decorateSidebar, installSidebar, iconKey, needTone, ICONS } from './sidebar.mjs';
 export {
   createPainter, createLooks, installPainter, paintPrompt, buildLooksPrompt, parseLooks,
   pictureKey, lookKey, processPicture, STYLE as PAINT_STYLE, NEGATIVE as PAINT_NEGATIVE,
@@ -36,7 +38,7 @@ export {
 } from './persona.mjs';
 export {
   createLivingWorld, installLivingWorld, TASKS, IDLE_CALLS_PER_DAY,
-  replayGrowth, cloneRecord, GROWTH_KEY,
+  replayGrowth, cloneRecord, GROWTH_KEY, runEventTask,
 } from './living.mjs';
 export {
   DEFAULT_LEXICON, TERMS, LEXICON_PROMPT_KEYS,

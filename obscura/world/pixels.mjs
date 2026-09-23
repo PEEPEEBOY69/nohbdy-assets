@@ -102,3 +102,20 @@ export function hardenAlpha(d, cut = 128) {
   for (let i = 3; i < d.length; i += 4) d[i] = d[i] >= cut ? 255 : 0;
   return d;
 }
+
+// A picture that is not a picture: almost nothing left after the background
+// comes out, or almost one colour throughout. A filtered or failed generation
+// comes back like that, and it must not be kept as a place's picture.
+export function isBlank(d, w, h, opts = {}) {
+  const minCover = opts.minCover ?? 0.04;
+  let opaque = 0; let lo = 255; let hi = 0;
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i + 3] < 128) continue;
+    opaque += 1;
+    const lum = (d[i] * 3 + d[i + 1] * 6 + d[i + 2]) / 10;
+    if (lum < lo) lo = lum;
+    if (lum > hi) hi = lum;
+  }
+  if (opaque < w * h * minCover) return true;
+  return hi - lo < (opts.minRange ?? 12);
+}

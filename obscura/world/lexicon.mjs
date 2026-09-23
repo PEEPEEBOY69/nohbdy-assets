@@ -161,6 +161,20 @@ export function segment(text) {
   const code = (s) => { flush(); out.push({ kind: 'code', text: s }); };
 
   while (i < src.length) {
+    // A script or style BODY is code to its closing tag. Scanned as a macro,
+    // `<<script>>` ended at its own '>>' and the JavaScript after it was read
+    // as prose: Story.get("School") became Story.get("<the world's word>"),
+    // and the institution's button opened a passage that does not exist.
+    const block = /^(<<script\b[^>]*>>|<script\b[^>]*>|<style\b[^>]*>)/i.exec(src.slice(i, i + 200));
+    if (block) {
+      const close = block[1].startsWith('<<') ? '<</script>>'
+        : block[1].toLowerCase().startsWith('<script') ? '</script>' : '</style>';
+      const end = src.toLowerCase().indexOf(close.toLowerCase(), i + block[1].length);
+      const stop = end === -1 ? src.length : end + close.length;
+      code(src.slice(i, stop));
+      i = stop;
+      continue;
+    }
     // A macro. Scan to the matching '>>' so `<<if $x > 3>>` is not cut short
     // at the bare '>'.
     if (src.startsWith('<<', i)) {

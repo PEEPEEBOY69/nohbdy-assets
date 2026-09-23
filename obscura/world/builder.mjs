@@ -13,6 +13,7 @@ import { resolveReferences } from './references.mjs';
 import { findReferences } from '../tools/schema-refs.mjs';
 import { classify, isFunctionValue } from '../tools/schema.mjs';
 import { assignTiers, TIER } from './tiers.mjs';
+import { preserveNamedRecords } from './named.mjs';
 
 // Both reference views, because they see different things and tiering needs
 // both. findReferences reads record fields holding strings; it is structurally
@@ -120,6 +121,16 @@ export async function buildWorld(tables, opts = {}) {
   const remap = remapWorld(world, tables, { keySpace: machineryKeys });
   problems.push(...remap.problems);
 
+  // Records the engine names by key keep the original's structure and take
+  // only the world's prose. The camera the engine reads for every camera's art
+  // tool came back without its art tool, and the Inventory threw on screen.
+  //
+  // FIRST, before the pointer passes below: a named record's original shape
+  // includes pointer fields (a map's picture, its region coordinates), and the
+  // passes below must be the ones to set those. Run after them, this put the
+  // original's map pictures back and they 404'd.
+  const named = preserveNamedRecords(world, tables, keepKeys, (t) => classify(t) === 'machinery');
+
   // Asset references are neither content nor structure: they point into a
   // closed set of shipped files. A model writes plausible names for them
   // ("map_nightmarket", "teamlogo_ravens.png") and every one names a file that
@@ -160,12 +171,14 @@ export async function buildWorld(tables, opts = {}) {
     problems.push(`unresolvable reference field: ${p}`);
   }
 
+
   return {
     world, problems, textProblems, remapped: remap.remapped, tiers,
     pinnedAssets: assets.pinned.length,
     mapsLaidOut: regions.laidOut,
     singletonsEnforced: singletons.applied.length,
     referencesResolved: refs2.resolved.length,
+    namedRecordsPreserved: named.applied.length,
   };
 }
 
@@ -199,8 +212,13 @@ export function applyWorld(setup, world) {
 
     const next = Array.isArray(generated) ? [] : {};
     for (const [k, v] of Object.entries(generated)) next[k] = v;
+    // The engine's own functions always win. The generator fills a field
+    // typed as a function with a stub that returns undefined, and a freshly
+    // built world kept the stub wherever it used the same key: the People
+    // screen threw "setup.ob_skills.all_skills is not a function or its
+    // return value is not iterable" until the next reload restored it.
     for (const [k, v] of Object.entries(original)) {
-      if (typeof v === 'function' && !(k in next)) { next[k] = v; methods++; }
+      if (typeof v === 'function') { next[k] = v; methods++; }
     }
     setup[name] = next;
     tables++;

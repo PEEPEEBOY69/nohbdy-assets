@@ -19,14 +19,16 @@ import {
   compile as compileLexicon, substitute as substituteLexicon,
 } from './lexicon.mjs';
 import { createLivingWorld, installLivingWorld, replayGrowth, GROWTH_KEY } from './living.mjs';
-import { WORLD_ID_KEY, newWorldId, persistWorld, createDurable } from './durable.mjs';
+import { WORLD_ID_KEY, newWorldId, persistWorld, createDurable, plain } from './durable.mjs';
 import { installHub } from './hub.mjs';
 import {
   installEvents, restoreAuthoredEvents, pruneDanglingEvents, STATE_KEY as EVENTS_KEY,
 } from './events.mjs';
 import { generatePlaceNames, installPlaceNames, STATE_KEY as PLACES_KEY } from './places.mjs';
 import { buildPersona, faultsIn } from './persona.mjs';
-import { installPainter } from './painter.mjs';
+import { installPainter, paintEnabled, setPaintEnabled } from './painter.mjs';
+import { installSidebar } from './sidebar.mjs';
+import { installPhone } from './phone.mjs';
 
 // Harvests the chassis's own tables out of the running engine. The payload
 // already ships them, so generation downloads nothing.
@@ -127,7 +129,9 @@ export async function startBuild(premise, progressId, done, deps = {}) {
         built.textProblems.slice(0, 10));
     }
 
-    applyWorld(setup, built.world);
+    // The world is applied as the data that is saved - no generated function
+    // stubs - so a fresh session and a reloaded one run the same world.
+    applyWorld(setup, plain(built.world) || built.world);
 
     // The geography. The map is carried whole, so without this every place
     // keeps the original's name - Blodgett Gymnasium in a rain-dark city.
@@ -366,12 +370,35 @@ export function installHubHook(deps = {}) {
       // A map's own name is the original's ("Campus"); its title goes through
       // this world's vocabulary, as the passages' text does.
       mapName: (key, map) => substituteLexicon(String((map && map.name) || key), compileLexicon(getLexicon(deps))),
+      // The switch is offered only where a painter was installed.
+      paint: () => ({ available: typeof window !== 'undefined' && !!window.ObscuraPainter, on: paintEnabled() }),
+      togglePaint: () => setPaintEnabled(!paintEnabled()),
       notice: () => (worldMissing(deps)
         ? 'This world was built in another browser, or this browser has forgotten it. Its places and people are placeholders here.'
         : null),
       ...deps,
     });
   } catch { return false; }
+}
+
+// The phone's screens (world/phone.mjs). None of the original's shipped.
+export function installPhoneHook(deps = {}) {
+  try { return installPhone(deps); } catch { return false; }
+}
+
+// The sidebar as Obscura's own (world/sidebar.mjs): the chassis's markup,
+// decorated. The institution's button is labelled by the world's vocabulary,
+// so its word is worked out the way the label itself is.
+export function installSidebarHook(deps = {}) {
+  try {
+    return installSidebar({
+      ...deps,
+      institutionWord: () => substituteLexicon('College', compileLexicon(getLexicon(deps))),
+    });
+  } catch (err) {
+    console.warn('Obscura: the sidebar decoration could not start', err);
+    return null;
+  }
 }
 
 // Perchance paints each place for this world (world/painter.mjs). Installed at

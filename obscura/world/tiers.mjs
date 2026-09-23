@@ -46,6 +46,14 @@ export const OPENING_SEEDS = [
   "species",
 ];
 
+// Tables carried WHOLE even when the opening reaches them. Their records are
+// structure, not prose: an outfit is a list of clothing pointers with
+// conditions on who wears which piece. Generating one produced a Starting
+// Outfit of a single item for a single gender - every other player began the
+// game naked. The same rule as the map and every other pointer: a closed set
+// or the original, never generation.
+export const CARRIED_WHOLE = ['ob_outfits'];
+
 export function assignTiers(tables, opts = {}) {
   const seeds = opts.readDuringWorldgen || [];
   const refs = opts.refs || [];
@@ -66,9 +74,10 @@ export function assignTiers(tables, opts = {}) {
     }
   }
 
+  const carried = new Set(opts.carry || CARRIED_WHOLE);
   const out = {};
   for (const name of Object.keys(tables)) {
-    out[name] = opening.has(name) ? TIER.OPENING : TIER.LAZY;
+    out[name] = opening.has(name) && !carried.has(name) ? TIER.OPENING : TIER.LAZY;
   }
   return out;
 }

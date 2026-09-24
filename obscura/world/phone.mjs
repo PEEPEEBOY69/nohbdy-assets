@@ -13,6 +13,7 @@
 // game/passages.json that calls one of these.
 import { ICONS } from './sidebar.mjs';
 import { latestLine } from './recall.mjs';
+import { calendarRead } from './timetable.mjs';
 
 const esc = s => String(s == null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -72,25 +73,38 @@ export function phoneContacts(setup, V) {
   return `<div class="ob-phone">${header(setup)}<div class="ob-phone-title">Contacts</div>${rows}${back()}</div>`;
 }
 
-const hourText = (h) => {
-  if (!Number.isFinite(h) || h < 0) return '';
-  const hr = Math.floor(h); const min = Math.round((h - hr) * 60);
-  const ampm = hr >= 12 ? 'pm' : 'am'; const h12 = hr % 12 === 0 ? 12 : hr % 12;
-  return `${h12}:${String(min).padStart(2, '0')}${ampm}`;
-};
-
-// A week from today, read from the engine's own calendar content: classes,
-// holidays, plans. Each day is read on its own, so one bad day is one line.
-export function phoneCalendar(setup, V, days = 7) {
-  const today = Number(V && V.gameday) || 1;
+// A week from today, read from the engine's own day content: classes,
+// festivals, breaks, plans. The engine takes a day of the MONTH and reads its
+// month from $displaymonth and _month, the way its own calendar screen set
+// them; handed the absolute day and no month it showed classes and nothing
+// else (measured, 2026-09-24). Both are put back after the read. Its labels
+// carry their own time ("9am General Psychology"). What the world's rulings
+// switch off - rush week, game days - is left out (world/timetable.mjs).
+export function phoneCalendar(setup, V, days = 7, T = null) {
+  const time = (setup && setup.ob_time) || {};
+  const months = Array.isArray(time.months) ? time.months : [];
+  const length = Number(time.month_length) || 28;
+  let month = Number.isInteger(V && V.month) ? V.month : 0;
+  let day = Number(V && V.day) || 1;
+  const temp = T || {};
+  const kept = { display: V ? V.displaymonth : undefined, month: temp.month };
   const out = [];
-  for (let d = today; d < today + days; d++) {
-    let label = `Day ${d}`;
-    try { label = `${setup.ob_time.weekday(d)}${d === today ? ' (today)' : ''}`; } catch { /* keep Day N */ }
-    let items = [];
-    try { items = setup.ob_phone.get_day_content(d) || []; } catch { items = []; }
-    const lines = items.map(([html, hour]) => `<div class="ob-phone-sub">${hourText(hour) ? `${hourText(hour)} ` : ''}${html}</div>`);
-    out.push(`<div class="ob-phone-row"><b>${esc(label)}</b>${lines.length ? lines.join('') : '<div class="ob-phone-sub">Nothing planned</div>'}</div>`);
+  try {
+    for (let i = 0; i < days; i++) {
+      let label = `Day ${day}`;
+      try { label = `${time.weekday(day)}${i === 0 ? ' (today)' : ''}`; } catch { /* keep Day N */ }
+      if (V) V.displaymonth = month;
+      temp.month = months[month];
+      let items = [];
+      try { items = calendarRead(setup, V, () => setup.ob_phone.get_day_content(day)) || []; } catch { items = []; }
+      const lines = items.map(([html]) => `<div class="ob-phone-sub">${html}</div>`);
+      out.push(`<div class="ob-phone-row"><b>${esc(label)}</b>${lines.length ? lines.join('') : '<div class="ob-phone-sub">Nothing planned</div>'}</div>`);
+      day += 1;
+      if (day > length) { day = 1; month = months.length ? (month + 1) % months.length : month + 1; }
+    }
+  } finally {
+    if (V) { if (kept.display === undefined) delete V.displaymonth; else V.displaymonth = kept.display; }
+    if (kept.month === undefined) delete temp.month; else temp.month = kept.month;
   }
   return `<div class="ob-phone">${header(setup)}<div class="ob-phone-title">Calendar</div>${out.join('')}${back()}</div>`;
 }
@@ -102,7 +116,7 @@ export function installPhone(deps = {}) {
   const V = () => (deps.state || SC.State).variables;
   setup.ob_obscura_phone = (view) => {
     if (view === 'contacts') return phoneContacts(setup, V());
-    if (view === 'calendar') return phoneCalendar(setup, V());
+    if (view === 'calendar') return phoneCalendar(setup, V(), 7, SC.State.temporary);
     return phoneHome(setup, V());
   };
   return true;

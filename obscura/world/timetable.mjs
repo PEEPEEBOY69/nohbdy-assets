@@ -30,6 +30,27 @@ const wrap = (owner, names, make) => {
   return true;
 };
 
+// Houses and sports cannot be joined in Obscura - their rush and signup
+// scenes do not ship - so what is left of them is what the phone's calendar
+// shows: "Rush week!" and every game day. The phone reads its week through
+// this: with sports off the game days are not there, with houses off rush week
+// is not - for the length of the read, and the engine's data put back after.
+export function calendarRead(setup, V, read) {
+  const s = systemsOf(V);
+  const School = setup && setup.School;
+  const houses = setup && setup.ob_houses;
+  const games = School ? School.gamedays : undefined;
+  const rush = houses ? houses.is_rush_week : undefined;
+  try {
+    if (!s.sports && School) School.gamedays = [];
+    if (!s.divisions && houses && typeof rush === 'function') houses.is_rush_week = () => false;
+    return read();
+  } finally {
+    if (School) School.gamedays = games;
+    if (houses && typeof rush === 'function') houses.is_rush_week = rush;
+  }
+}
+
 export function installTimetable(deps = {}) {
   const SC = deps.SugarCube || (typeof window !== 'undefined' ? window.SugarCube : null);
   const setup = SC && SC.setup;
@@ -67,6 +88,12 @@ export function installTimetable(deps = {}) {
       return original.apply(this, args);
     });
   }
+
+  // Houses off: a closed door, closed even if house content ever ships.
+  wrap(setup.ob_houses, ['can_join'], (original) => function (...args) {
+    if (!systemsOf(V()).divisions) return false;
+    return original.apply(this, args);
+  });
 
   // Timetable on: a class of the player's, on now, at its building or at the
   // building's door (where the sidebar's shortcut takes them). Attending puts

@@ -69,4 +69,4 @@ export {
 export { installRecall, recordShift, memoryOf, memoryLines, latestLine, recallHere, profileSections, describeShift, MEMORY_KEY } from './recall.mjs';
 export { schoolNames, nameTheSchool, schoolTooltips, RENAMES_KEY } from './renames.mjs';
 export { renameRules, renameText, parseSystems, SYSTEM_QUESTIONS } from './lexicon.mjs';
-export { installTimetable, systemsOf, unenrolled } from './timetable.mjs';
+export { installTimetable, systemsOf, unenrolled, calendarRead } from './timetable.mjs';

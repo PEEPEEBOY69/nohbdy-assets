@@ -188,6 +188,11 @@ export function hubHtml(setup, V, opts = {}) {
   }
 
   lines.push('<div class="ob-hub-actions">');
+  // a class of the player's that is on now, in a world that keeps its
+  // timetable (world/timetable.mjs)
+  let cls = null;
+  try { cls = setup && typeof setup.ob_attendable === 'function' ? setup.ob_attendable() : null; } catch { cls = null; }
+  if (cls && cls.course) lines.push(`<<link "Attend ${esc(cls.course)}">><<run setup.ob_attend()>><</link>>`);
   lines.push('<<link "Wait a while">><<run setup.ob_obscura_wait()>><</link>>');
   lines.push('</div>');
 

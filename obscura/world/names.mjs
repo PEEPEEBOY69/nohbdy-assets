@@ -43,6 +43,21 @@ export function buildNamesPrompt(premise, culture) {
 
 const ONE_WORD = /^[\p{L}][\p{L}\p{M}'’-]{0,23}$/u;
 
+// Each list read on its own, up to where the reply stops. A reply cut off by
+// the token budget - 160 invented names are long - has no closing brace, and
+// read whole it kept nothing: a prehistoric world got modern English names
+// (real model, 2026-09-24). The name being written when it stopped has no
+// closing quote, so it is not read.
+function salvageLists(src) {
+  const out = {};
+  for (const kind of Object.keys(NAME_COUNTS)) {
+    const m = new RegExp(`"${kind}"\\s*:\\s*\\[([^\\]]*)`).exec(src);
+    if (!m) continue;
+    out[kind] = [...m[1].matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((x) => x[1]);
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 export function parseNameLists(reply) {
   const problems = [];
   const body = String(reply || '');
@@ -50,11 +65,12 @@ export function parseNameLists(reply) {
   const src = fenced ? fenced[1] : body;
   const start = src.indexOf('{');
   const end = src.lastIndexOf('}');
-  if (start === -1 || end <= start) return { lists: null, problems: ['no JSON object in the reply'] };
-  let parsed;
-  try { parsed = parseModelJson(src.slice(start, end + 1)); } catch (err) {
-    return { lists: null, problems: [`not valid JSON: ${err.message}`] };
+  let parsed = null;
+  if (start !== -1 && end > start) {
+    try { parsed = parseModelJson(src.slice(start, end + 1)); } catch { parsed = null; }
   }
+  if (!parsed) parsed = salvageLists(start === -1 ? src : src.slice(start));
+  if (!parsed) return { lists: null, problems: ['no JSON object in the reply'] };
   const lists = {};
   for (const [kind, want] of Object.entries(NAME_COUNTS)) {
     const seen = new Set();
@@ -96,7 +112,7 @@ export async function generateNames(premise, culture, model, callOpts = {}) {
   }
   try {
     const reply = await model.ask(buildNamesPrompt(premise, culture), {
-      maxTokens: 1200, temperature: 0.9, ...callOpts,
+      maxTokens: 1700, temperature: 0.9, ...callOpts,
     });
     return parseNameLists(reply);
   } catch (err) {

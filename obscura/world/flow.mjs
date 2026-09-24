@@ -23,10 +23,11 @@ import { createBuildScreen } from './buildscreen.mjs';
 import { namesFit, generateNames, applyNameLists } from './names.mjs';
 import { worldBriefFrom } from './imports.mjs';
 import { castSets, mapPending, joinPending, unmapped, CAST_PENDING_KEY } from './cast.mjs';
+import { nameTheSchool, schoolTooltips, emptyRenames, placeRenames, RENAMES_KEY } from './renames.mjs';
 import { OPENING_SEEDS } from './tiers.mjs';
 import {
   generateLexicon, DEFAULT_LEXICON, install as installLexicon,
-  compile as compileLexicon, substitute as substituteLexicon, applyLexiconToTables,
+  compile as compileLexicon, substitute as substituteLexicon, applyLexiconToTables, renameRules, renameText,
 } from './lexicon.mjs';
 import { createLivingWorld, installLivingWorld, replayGrowth, GROWTH_KEY } from './living.mjs';
 import { WORLD_ID_KEY, newWorldId, persistWorld, createDurable, plain } from './durable.mjs';
@@ -169,6 +170,11 @@ export async function startBuild(premise, progressId, done, deps = {}) {
     // what the engine prints straight from a table - what you are wearing -
     // speaks the same words as the passages
     applyLexiconToTables(setup, lex.lexicon);
+    // The world as the first call made it: a short premise made concrete, and
+    // which of the school's systems it has (world/renames.mjs). Every later
+    // call builds from the same picture.
+    const world = { setting: lex.setting || '', systems: lex.systems || { timetable: true, grades: true, sports: true, divisions: true } };
+    const told = world.setting ? `${chosen}\n\n${world.setting}` : chosen;
 
     // The structure, from the stub alone - no model. The engine's own data is
     // kept whole; the original's stripped prose is left to the writer. With
@@ -182,7 +188,7 @@ export async function startBuild(premise, progressId, done, deps = {}) {
     if (!namesFit(lex.names)) {
       if (screen) screen.expect('names', 40000);
       say(`Finding ${lex.names} names...`);
-      const got = await generateNames(chosen, lex.names, model);
+      const got = await generateNames(told, lex.names, model);
       if (got.problems.length) console.warn('Obscura names:', got.problems);
       nameLists = got.lists;
     }
@@ -190,7 +196,7 @@ export async function startBuild(premise, progressId, done, deps = {}) {
     say('Laying out your world...');
     const built = await buildWorld(tables, {
       generator: deps.generator,
-      premise: chosen,
+      premise: told,
       seed: chosen,
       readDuringWorldgen: deps.seeds || OPENING_SEEDS,
       assetManifest,
@@ -228,7 +234,8 @@ export async function startBuild(premise, progressId, done, deps = {}) {
     // `window.Obscura.lastBuild = x` is a TypeError, not a property.
     if (typeof window !== 'undefined') {
       window.ObscuraBuild = {
-        premise: chosen,
+        premise: told,
+        world,
         lexicon: lex.lexicon,
         lexiconProblems: lex.problems,
         pinnedAssets: built.pinnedAssets || 0,
@@ -266,7 +273,7 @@ export async function startBuild(premise, progressId, done, deps = {}) {
     const store = deps.store || sharedStore();
     try {
       const saved = await persistWorld(store, worldId, built.world, {
-        premise: chosen, lexicon: lex.lexicon, builtAt: Date.now(), logs: [PLAN_LOG, WRITES_LOG],
+        premise: told, lexicon: lex.lexicon, builtAt: Date.now(), logs: [PLAN_LOG, WRITES_LOG],
       });
       await store.saveTable(worldId, PLAN_LOG, plan);
       await store.saveTable(worldId, WRITES_LOG, {});
@@ -287,18 +294,23 @@ export async function startBuild(premise, progressId, done, deps = {}) {
         model,
         setup,
         state: st,
-        premise: () => (live() && live().obscuraPremise) || chosen,
+        premise: () => (live() && live().obscuraPremise) || told,
         lexicon: () => getLexicon(deps),
         callsPerDay: deps.idleCallsPerDay,
       });
     }
 
-    // A world brought in is carried by the premise from here on: every later
-    // prompt (the writer, the living world, the painter) reads
-    // $obscuraPremise, and the lore itself - up to 40,000 characters - is
-    // not kept in a save that SugarCube copies into every history moment.
-    if (vars && brief) {
-      vars.obscuraPremise = chosen;
+    // What the build was told - a brought world's brief, a short premise's
+    // setting - is carried by the premise from here on: every later prompt
+    // (the writer, the living world, the painter) reads $obscuraPremise, and
+    // the lore itself - up to 40,000 characters - is not kept in a save that
+    // SugarCube copies into every history moment. The world's rulings and
+    // the school's renames (data the engine prints as it is, first; the
+    // model's names as they land) go in the save beside it.
+    if (vars) {
+      if (told !== (vars.obscuraPremise || '')) vars.obscuraPremise = told;
+      vars.obscuraWorld = world;
+      vars[RENAMES_KEY] = { ...emptyRenames(), exact: schoolTooltips(setup, lex.lexicon) };
     }
     // The people the player brought wait in the save from here (world/cast.mjs).
     if (vars && brought) {
@@ -322,26 +334,28 @@ export async function startBuild(premise, progressId, done, deps = {}) {
     // was 118 of 141 seconds of waiting (perchance.org, 2026-09-23). Asked
     // before the writer starts, so it is first in the queue.
     if (model.available()) {
-      nameThePlaces({ setup, model, persona: buildPersona(chosen, lex.lexicon), live, SugarCube: deps.SugarCube });
+      nameThePlaces({ setup, model, persona: buildPersona(told, lex.lexicon), live, SugarCube: deps.SugarCube });
     }
 
-    // The people the player brought: read onto the engine's closed sets in
-    // the background, and made into people at the first real place, when the
-    // engine's own population exists (installCastHook).
-    if (model.available() && unmapped(vars && vars[CAST_PENDING_KEY]).length) {
-      mapPending({ model, premise: chosen, sets: castSets(setup), vars: live })
-        .catch((err) => console.warn('Obscura: the characters could not be read', err));
-    }
-
-    // The rest of the world is written from here on, while the player picks a
-    // name and plays.
+    // Then, one queue in the order the player meets them: the school's names
+    // (on every sidebar from the first screen), the people the player brought
+    // (read onto the engine's closed sets, made into people at the first real
+    // place - installCastHook), and the rest of the world's prose, written
+    // while the player picks a name and plays.
+    const school = model.available()
+      ? nameTheSchool({ setup, model, premise: told, lexicon: lex.lexicon, live, onBatch: () => refreshPlace(deps.SugarCube) })
+        .catch((err) => console.warn('Obscura: the school could not be renamed', err))
+      : Promise.resolve();
+    const cast = school.then(() => (model.available() && unmapped(vars && vars[CAST_PENDING_KEY]).length
+      ? mapPending({ model, premise: told, sets: castSets(setup), vars: live })
+      : null)).catch((err) => console.warn('Obscura: the characters could not be read', err));
     if (model.available() && plan.length) {
-      startWriter({
+      cast.finally(() => startWriter({
         model, setup, plan, writes: {}, worldId, store, document: doc,
-        premise: () => (live() && live().obscuraPremise) || chosen,
+        premise: () => (live() && live().obscuraPremise) || told,
         lexicon: () => getLexicon(deps),
         jQuery: deps.jQuery,
-      });
+      }));
     }
     return built;
   } catch (err) {
@@ -372,17 +386,27 @@ export async function loadAssetManifest(base, fetchFn) {
 
 // Names the places in the background and shows them the moment they land:
 // the names live in a story variable, and a location on screen is shown again.
-function nameThePlaces({ setup, model, persona, live, SugarCube }) {
+// Shows the place again, so names that just landed are read on it.
+function refreshPlace(SugarCube) {
   const SC = SugarCube || (typeof window !== 'undefined' ? window.SugarCube : null);
+  try {
+    const tags = SC && SC.Story && SC.State ? SC.Story.get(SC.State.passage).tags : [];
+    if (tags && tags.includes('location') && typeof SC.Engine.show === 'function') SC.Engine.show();
+  } catch { /* nothing on screen to refresh */ }
+}
+
+function nameThePlaces({ setup, model, persona, live, SugarCube }) {
   return generatePlaceNames({ setup, model, faultsIn, persona, background: true })
     .then((places) => {
       if (places.problems.length) console.warn('Obscura places:', places.problems);
       const v = live();
-      if (v) v[PLACES_KEY] = places.names;
-      try {
-        const tags = SC && SC.Story && SC.State ? SC.Story.get(SC.State.passage).tags : [];
-        if (tags && tags.includes('location') && typeof SC.Engine.show === 'function') SC.Engine.show();
-      } catch { /* nothing on screen to refresh */ }
+      if (v) {
+        v[PLACES_KEY] = places.names;
+        // and on the screens that read a place's name straight off the map
+        const r = v[RENAMES_KEY];
+        if (r && typeof r === 'object') { r.exact = r.exact || {}; Object.assign(r.exact, placeRenames(setup, places.names)); }
+      }
+      refreshPlace(SugarCube);
       return places;
     })
     .catch((err) => { console.warn('Obscura: the places could not be named', err); });
@@ -489,7 +513,7 @@ export function installCastHook(deps = {}) {
 let guard = null;
 export function installGuardHook(deps = {}) {
   if (guard) return guard;
-  try { guard = installGuard(deps); } catch (err) { console.warn('Obscura: the guard could not start', err); }
+  try { guard = installGuard({ ...deps, transform: renamesTransform(deps) }); } catch (err) { console.warn('Obscura: the guard could not start', err); }
   return guard;
 }
 
@@ -558,6 +582,12 @@ export function installWorldRestore(deps = {}) {
           premise: () => (varsOf() || {}).obscuraPremise || '',
           lexicon: () => getLexicon(deps),
         });
+        // a reload in the middle of the renaming resumes it (world/renames.mjs)
+        const renames = vars && vars[RENAMES_KEY];
+        if (renames && !renames.done) {
+          nameTheSchool({ setup, model, premise: (varsOf() || {}).obscuraPremise || '', lexicon: getLexicon(deps), live: varsOf,
+            onBatch: () => refreshPlace(SC) }).catch((err) => console.warn('Obscura: the school could not be renamed', err));
+        }
         // people still waiting on their answer when the page went away
         if (unmapped(vars && vars[CAST_PENDING_KEY]).length) {
           mapPending({ model, premise: () => (varsOf() || {}).obscuraPremise || '', sets: castSets(setup), vars: varsOf })
@@ -614,6 +644,29 @@ export function setLexicon(lexicon, deps = {}) {
   if (!state || !state.variables) return false;
   state.variables.obscuraLexicon = lexicon;
   return true;
+}
+
+// The school's names renamed for this world, as the save holds them.
+export function getRenames(deps = {}) {
+  const state = deps.state
+    || (typeof window !== 'undefined' && window.SugarCube && window.SugarCube.State);
+  const r = state && state.variables && state.variables[RENAMES_KEY];
+  return r && typeof r === 'object' ? r : null;
+}
+
+// For the guard, which asks on every text node: compiled once per map object
+// and per size. SugarCube gives each move a new copy, so this compiles once a
+// passage at most.
+const renameMemo = new WeakMap();
+function renamesTransform(deps) {
+  return (text) => {
+    const r = getRenames(deps);
+    if (!r) return text;
+    const key = `${Object.keys(r.exact || {}).length}/${Object.keys(r.words || {}).length}`;
+    let hit = renameMemo.get(r);
+    if (!hit || hit.key !== key) { hit = { key, rules: renameRules(r) }; renameMemo.set(r, hit); }
+    return renameText(text, hit.rules);
+  };
 }
 
 export function getLexicon(deps = {}) {
@@ -725,7 +778,7 @@ export function installLexiconHook(deps = {}) {
     || (typeof window !== 'undefined' && window.SugarCube && window.SugarCube.Config);
   if (!config || !config.passages) return false;
   if (installedOn.has(config.passages)) return true;
-  installLexicon(config, () => getLexicon(deps));
+  installLexicon(config, () => getLexicon(deps), () => getRenames(deps));
   installedOn.add(config.passages);
   return true;
 }

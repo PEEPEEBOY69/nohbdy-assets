@@ -281,9 +281,53 @@ const ZERO_ARTICLE_NOUNS = { college: 'institution_kind', school: 'institution_k
 
 // Built once per lexicon, not per passage: 286 passages x 25 terms is a lot of
 // RegExp construction to repeat on every render.
-export function compile(lexicon = {}) {
+const MARK = /\uE000(\d+)\uE001/g;
+
+// The school's own names renamed for this world (world/renames.mjs): proper
+// names matched exactly, ordinary words in any case with the original's case
+// kept. No lookbehind - Safari before 16.4 cannot parse it - so a match takes
+// the character before it along and gives it back.
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&');
+
+export function renameRules(renames) {
+  const rules = [];
+  const r = renames || {};
+  const exact = Object.entries(r.exact || {}).filter(([k, v]) => k && v).sort((a, b) => b[0].length - a[0].length);
+  if (exact.length) {
+    const to = new Map(exact);
+    rules.push({
+      re: new RegExp(`(^|[^\\w-])(${exact.map(([k]) => escapeRe(k)).join('|')})(?![\\w-])`, 'g'),
+      build: (m, pre, name) => pre + (to.get(name) ?? name),
+    });
+  }
+  const words = Object.entries(r.words || {}).filter(([k, v]) => k && v).sort((a, b) => b[0].length - a[0].length);
+  if (words.length) {
+    const to = new Map(words.map(([k, v]) => [k.toLowerCase(), v]));
+    rules.push({
+      re: new RegExp(`(^|[^\\w-])(${words.map(([k]) => escapeRe(k).replace(/ /g, '\\s+')).join('|')})(?![\\w-])`, 'gi'),
+      build: (m, pre, name) => pre + matchCase(name, to.get(name.toLowerCase().replace(/\s+/g, ' ')) ?? name),
+    });
+  }
+  return rules;
+}
+
+// For text already on screen: no passage markup to step around. One pass, the
+// same inert markers as substitute().
+export function renameText(text, rules) {
+  if (typeof text !== 'string' || !text || !rules || !rules.length) return text;
+  const made = [];
+  let s = text;
+  for (const r of rules) {
+    s = s.replace(r.re, (...a) => { made.push(r.build(...a)); return `\uE000${made.length - 1}\uE001`; });
+  }
+  return made.length ? s.replace(MARK, (m, i) => made[Number(i)]) : text;
+}
+
+export function compile(lexicon = {}, renames = null) {
   const lex = { ...DEFAULT_LEXICON, ...lexicon };
   const rules = [];
+  // the school's names first: a course whose name holds a term is renamed whole
+  rules.push(...renameRules(renames));
 
   // 1. Zero-article idioms first - they are longer and more specific than the
   //    bare noun, and the bare-noun rule would otherwise consume them.
@@ -348,7 +392,6 @@ export function compile(lexicon = {}) {
 // every passage, whenever the model's word held another term (2026-09-23).
 // A marker holds no letters and no sentence punctuation, so a word after one
 // reads as mid-sentence - which it is.
-const MARK = /\uE000(\d+)\uE001/g;
 
 export function substitute(text, compiled) {
   const { rules } = compiled;
@@ -430,6 +473,28 @@ export const LEXICON_PROMPT_KEYS = [
   ['commons', 'the open space where members gather'],
 ];
 
+// A premise shorter than this is made concrete by the first call.
+export const SETTING_UNDER_WORDS = 20;
+export const wordCount = (s) => String(s || '').trim().split(/\s+/).filter(Boolean).length;
+
+// Which of the school's systems this world has. Asked in the first call, and
+// only a clear "no" switches one off: a failed or vague answer leaves the
+// world as the engine made it.
+export const SYSTEM_QUESTIONS = [
+  ['timetable', 'do members keep scheduled sessions they must attend (lessons, drills, shifts)?'],
+  ['grades', 'is their work formally marked or graded?'],
+  ['sports', 'do teams from this place play organised games against rival places, the way a school or a town fields a team?'],
+  ['divisions', 'can members join exclusive houses or societies that recruit newcomers and throw parties, the way fraternities do?'],
+];
+
+export function parseSystems(parsed) {
+  const no = (v) => v === false || /^\s*no\b/i.test(String(v == null ? '' : v));
+  const systems = Object.fromEntries(SYSTEM_QUESTIONS.map(([k]) => [k, !no(parsed && parsed[k])]));
+  // grades only exist through courses
+  if (!systems.timetable) systems.grades = false;
+  return systems;
+}
+
 export function buildLexiconPrompt(premise) {
   return [
     'WORLD PREMISE',
@@ -452,6 +517,13 @@ export function buildLexiconPrompt(premise) {
     // fit this world. Asked here because a separate call costs 20-30 s on
     // perchance.org whatever it asks (world/names.mjs).
     'names: the language, culture and era of people\'s names here - "english" if ordinary modern English names fit, otherwise say which (for example "Edo-period Japanese")',
+    // A short premise made concrete once, so every later call builds the same
+    // world; and which of the school's systems it has (world/renames.mjs,
+    // planning/specs/2026-09-24-world-shape-design.md).
+    ...(wordCount(premise) < SETTING_UNDER_WORDS
+      ? ['setting: two or three sentences that make this world concrete - where and when it is, and what the player belongs to and does there']
+      : []),
+    ...SYSTEM_QUESTIONS.map(([k, q]) => `${k}: "yes" or "no" - ${q}`),
   ].join('\n');
 }
 
@@ -460,11 +532,11 @@ export function buildLexiconPrompt(premise) {
 // institution rather than a campus.
 export async function generateLexicon(premise, model) {
   if (!model || typeof model.ask !== 'function' || !model.available()) {
-    return { lexicon: { ...DEFAULT_LEXICON }, problems: ['no model: using the default lexicon'] };
+    return { lexicon: { ...DEFAULT_LEXICON }, problems: ['no model: using the default lexicon'], setting: '', systems: parseSystems({}) };
   }
   const problems = [];
   try {
-    const reply = await model.ask(buildLexiconPrompt(premise), { maxTokens: 420, temperature: 0.9 });
+    const reply = await model.ask(buildLexiconPrompt(premise), { maxTokens: 560, temperature: 0.9 });
     const body = String(reply || '');
     const fenced = body.match(/```(?:json)?\s*([\s\S]*?)```/);
     const src = fenced ? fenced[1] : body;
@@ -481,11 +553,15 @@ export async function generateLexicon(premise, model) {
       out[key] = word;
     }
     const names = typeof parsed.names === 'string' ? parsed.names.trim().slice(0, 80) : '';
-    return { lexicon: out, problems, names };
+    const setting = wordCount(premise) < SETTING_UNDER_WORDS && typeof parsed.setting === 'string'
+      ? parsed.setting.replace(/\s+/g, ' ').trim().slice(0, 600) : '';
+    return { lexicon: out, problems, names, setting, systems: parseSystems(parsed) };
   } catch (err) {
     return {
       lexicon: { ...DEFAULT_LEXICON },
       problems: [`lexicon generation failed: ${err && err.message ? err.message : String(err)}`],
+      setting: '',
+      systems: parseSystems({}),
     };
   }
 }
@@ -501,20 +577,17 @@ export async function generateLexicon(premise, model) {
 //
 // Compilation is memoised on the lexicon's identity - 25 terms is ~50 RegExp
 // objects, and building them per passage render would be wasteful.
-export function install(config, source) {
+export function install(config, source, renamesSource = null) {
   const previous = config.passages.onProcess;
   let key = null;
   let compiled = null;
+  const read = (fn) => { try { return typeof fn === 'function' ? fn() : fn; } catch { return null; } };
   config.passages.onProcess = function (p) {
     const text = typeof previous === 'function' ? previous.call(this, p) : p.text;
-    let lex;
-    try {
-      lex = typeof source === 'function' ? source() : source;
-    } catch {
-      lex = null;
-    }
-    const next = JSON.stringify(lex || {});
-    if (next !== key) { key = next; compiled = compile(lex || {}); }
+    const lex = read(source);
+    const renames = read(renamesSource);
+    const next = JSON.stringify(lex || {}) + '\u0000' + JSON.stringify(renames || {});
+    if (next !== key) { key = next; compiled = compile(lex || {}, renames); }
     return substitute(text, compiled);
   };
   return config.passages.onProcess;

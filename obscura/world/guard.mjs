@@ -29,13 +29,23 @@ export function scrub(text) {
 const SKIP = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'INPUT', 'NOSCRIPT']);
 const ATTRS = ['title', 'alt', 'aria-label', 'placeholder', 'data-tooltip'];
 
-export function scrubTree(root) {
+// `transform` runs after the scrub on every text node and on the attributes
+// the player reads: the school's names renamed for this world
+// (world/renames.mjs) reach the screen this way, because what the engine
+// builds in JavaScript never passes the passage hook.
+export function scrubTree(root, transform = null) {
   let changed = 0;
+  const clean = (v) => {
+    let s = v.indexOf('[') !== -1 ? scrub(v) : v;
+    if (transform) { try { s = transform(s); } catch { /* the text stays as it was */ } }
+    return s;
+  };
   const visit = (node) => {
     if (!node) return;
     if (node.nodeType === 3) {
       const v = node.nodeValue;
-      const s = scrub(v);
+      if (typeof v !== 'string') return;
+      const s = clean(v);
       if (s !== v) { node.nodeValue = s; changed += 1; }
       return;
     }
@@ -44,10 +54,9 @@ export function scrubTree(root) {
       if (SKIP.has(String(node.tagName).toUpperCase())) return;
       for (const a of ATTRS) {
         const v = typeof node.getAttribute === 'function' ? node.getAttribute(a) : null;
-        if (typeof v === 'string' && v.indexOf('[') !== -1) {
-          const s = scrub(v);
-          if (s !== v) { node.setAttribute(a, s); changed += 1; }
-        }
+        if (typeof v !== 'string' || !v) continue;
+        const s = clean(v);
+        if (s !== v) { node.setAttribute(a, s); changed += 1; }
       }
     }
     const kids = node.childNodes || [];
@@ -58,13 +67,13 @@ export function scrubTree(root) {
 }
 
 // Scrubs the page once, then every node added and every text changed.
-// deps: document, MutationObserver, onScrub(count).
+// deps: document, MutationObserver, onScrub(count), transform(text).
 export function installGuard(deps = {}) {
   const doc = deps.document !== undefined ? deps.document : (typeof document !== 'undefined' ? document : null);
   if (!doc || !doc.body) return null;
   const onScrub = deps.onScrub || (() => {});
   const fix = (node) => {
-    const n = scrubTree(node);
+    const n = scrubTree(node, deps.transform || null);
     if (n) { try { onScrub(n); } catch { /* not the guard's failure */ } }
   };
   fix(doc.body);

@@ -12,7 +12,7 @@ export {
   setLexicon, getLexicon, installLexiconHook, installHubHook, installEventsHook, installPlacesHook,
   loadAssetManifest, installWorldRestore, startLivingWorld, markWorldApplied, worldMissing,
   installPainterHook, installSidebarHook, installPhoneHook, startWriter, installGuardHook, installWriterControls,
-  installCastHook,
+  installCastHook, getRenames,
 } from './flow.mjs';
 export { readImport, characterFromCard, loreFromJson, loreFromText, cardTextFromPng, worldBriefFrom } from './imports.mjs';
 export { castSets, buildCastPrompt, parseCast, castName, addCastMember, mapPending, joinPending, settleIn, CAST_KEY, CAST_PENDING_KEY } from './cast.mjs';
@@ -67,3 +67,5 @@ export {
   MEMORY_KEEP_RECENT, MEMORY_WEIGHT_KEEP,
 } from './memory.mjs';
 export { installRecall, recordShift, memoryOf, memoryLines, latestLine, recallHere, profileSections, describeShift, MEMORY_KEY } from './recall.mjs';
+export { schoolNames, nameTheSchool, schoolTooltips, RENAMES_KEY } from './renames.mjs';
+export { renameRules, renameText, parseSystems, SYSTEM_QUESTIONS } from './lexicon.mjs';

@@ -135,3 +135,12 @@ export function stripPackaging(text, kind = 'body') {
   }
   return s.trim();
 }
+
+// The first sentence of a text. Found with a lookahead, never a lookbehind:
+// Safari before 16.4 cannot parse one, and a module that does not parse takes
+// every world module down with it on that phone.
+export function firstSentence(text) {
+  const s = String(text == null ? '' : text).trim();
+  const m = /^[\s\S]*?[.!?](?=\s|$)/.exec(s);
+  return m ? m[0] : s;
+}

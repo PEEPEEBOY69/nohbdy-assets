@@ -14,6 +14,9 @@ export const MEMORY_KEY = 'obscuraMemory';
 // memories per person, and people remembered at all
 export const RECALL_KEEP = 16;
 export const RECALL_PEOPLE = 150;
+// A conversation is one scene however many turns it takes: world/talk.mjs
+// names it here while it lasts, so five kind words are one memory, not five.
+export const SCENE_KEY = 'obscuraScene';
 
 const WORDS = {
   friendship: ['warmed to you', 'cooled toward you'],
@@ -172,7 +175,7 @@ export function installRecall(deps = {}) {
       if (updateinteraction !== false && !inCharacterCreation()) {
         try {
           recordShift(V, key, type, feelingOf(V, key, type) - before,
-            { day: V.gameday, place: placeName(V), turn: SC.State.turns });
+            { day: V.gameday, place: placeName(V), turn: (typeof V[SCENE_KEY] === 'string' && V[SCENE_KEY]) || SC.State.turns });
         } catch (err) { console.warn('Obscura: a memory could not be kept', err); }
       }
       return result;

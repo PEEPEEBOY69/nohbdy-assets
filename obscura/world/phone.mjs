@@ -14,6 +14,7 @@
 import { ICONS } from './sidebar.mjs';
 import { latestLine } from './recall.mjs';
 import { calendarRead } from './timetable.mjs';
+import { firstSentence } from './persona.mjs';
 
 const esc = s => String(s == null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -63,7 +64,7 @@ export function phoneContacts(setup, V) {
   const list = knownPeople(V);
   // someone the player brought keeps their own description (world/cast.mjs)
   const brought = (V && V.obscuraCast) || {};
-  const first = (s) => String(s || '').split(/(?<=[.!?])\s/)[0].slice(0, 140);
+  const first = (s) => firstSentence(s).slice(0, 140);
   const rows = list.length
     ? list.map(p => `<div class="ob-phone-row">${p.fav ? '<b>' : ''}${esc(p.name)}${p.fav ? '</b>' : ''}`
       + `${p.relationship ? `<span class="ob-phone-sub">${esc(p.relationship)}</span>` : ''}`

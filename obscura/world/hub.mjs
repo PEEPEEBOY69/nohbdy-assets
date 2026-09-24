@@ -163,12 +163,21 @@ export function hubHtml(setup, V, opts = {}) {
   // here, so the passage hook never sees it
   if (here && here.features) lines.push(`<div class="ob-hub-feature">${esc(substituteWith(here.features, V && V.obscuraLexicon))}</div>`);
 
-  const names = peopleAt(setup, V && V.location)
-    .map(personName).filter(Boolean).slice(0, MAX_PEOPLE_SHOWN);
-  if (names.length) {
-    lines.push(`<div class="ob-hub-people">Here: ${names.map(esc).join(', ')}</div>`);
+  // Who is here: the engine's own $peopleatlocation, which its PassageReady
+  // sets on every location passage - so every name shown is one its "Talk to"
+  // accepts - else asked for directly. With talking installed each name opens
+  // a conversation (world/talk.mjs), by its place in the engine's list; the
+  // engine's keyboard links skip a nokeys element, so the exits keep [1], [2].
+  const list = Array.isArray(V && V.peopleatlocation) ? V.peopleatlocation : null;
+  const talkable = !!list && !!opts.talk;
+  const people = (list || peopleAt(setup, V && V.location))
+    .map((p, i) => ({ name: personName(p), i })).filter((x) => x.name).slice(0, MAX_PEOPLE_SHOWN);
+  if (people.length) {
+    const shown = people.map((x) => (talkable
+      ? `<<link "${esc(x.name)}">><<run setup.ob_talk_open(${x.i})>><</link>>` : esc(x.name))).join(', ');
+    lines.push(`<div class="ob-hub-people${talkable ? ' nokeys' : ''}">Here: ${shown}</div>`);
     // someone here who remembers something of you (world/recall.mjs)
-    for (const line of recallHere(V, names, (n) => String(n).split(' ')[0])) {
+    for (const line of recallHere(V, people.map((x) => x.name), (n) => String(n).split(' ')[0])) {
       lines.push(`<div class="ob-hub-recall">${esc(line)}</div>`);
     }
   }
@@ -278,6 +287,8 @@ export function installHub(deps = {}) {
     pictureBase: pictureBase(),
     notice: typeof deps.notice === 'function' ? deps.notice() : null,
     paint: typeof deps.paint === 'function' ? deps.paint() : null,
+    // the names are people to talk to once world/talk.mjs is installed
+    talk: typeof setup.ob_talk_open === 'function',
   });
   setup.ob_obscura_paint_toggle = () => {
     if (typeof deps.togglePaint === 'function') deps.togglePaint();

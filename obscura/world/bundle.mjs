@@ -12,7 +12,7 @@ export {
   setLexicon, getLexicon, installLexiconHook, installHubHook, installEventsHook, installPlacesHook,
   loadAssetManifest, installWorldRestore, startLivingWorld, markWorldApplied, worldMissing,
   installPainterHook, installSidebarHook, installPhoneHook, startWriter, installGuardHook, installWriterControls,
-  installCastHook, getRenames,
+  installCastHook, getRenames, installTalkHook, installPortraitsHook,
 } from './flow.mjs';
 export { readImport, characterFromCard, loreFromJson, loreFromText, cardTextFromPng, worldBriefFrom } from './imports.mjs';
 export { castSets, buildCastPrompt, parseCast, castName, addCastMember, mapPending, joinPending, settleIn, CAST_KEY, CAST_PENDING_KEY } from './cast.mjs';
@@ -66,7 +66,16 @@ export {
   newMemory, remember, compact, contextFor, feelTowards,
   MEMORY_KEEP_RECENT, MEMORY_WEIGHT_KEEP,
 } from './memory.mjs';
-export { installRecall, recordShift, memoryOf, memoryLines, latestLine, recallHere, profileSections, describeShift, MEMORY_KEY } from './recall.mjs';
+export { installRecall, recordShift, memoryOf, memoryLines, latestLine, recallHere, profileSections, describeShift, MEMORY_KEY, SCENE_KEY } from './recall.mjs';
 export { schoolNames, nameTheSchool, schoolTooltips, RENAMES_KEY } from './renames.mjs';
 export { renameRules, renameText, parseSystems, SYSTEM_QUESTIONS } from './lexicon.mjs';
 export { installTimetable, systemsOf, unenrolled, calendarRead } from './timetable.mjs';
+export {
+  ACTIONS as TALK_ACTIONS, TIERS as TALK_TIERS, BUILT_IN as TALK_BUILT_IN, worldCells, buildBankPrompt,
+  buildPersonalPrompt, parsePairs, readTalkLog, recordsFromLog, writeWorldBank, writeOwnLines,
+} from './talkbank.mjs';
+export {
+  tierOf, outcomeOf, effectsOf, pickLine, talkScreenHtml, standingWith, whoTheyAre, installTalk, talkStatus,
+  talkRecords, restoreTalk, startTalkWorld, TALK_LOG, CONVO_KEY, TALK_PASSAGE,
+} from './talk.mjs';
+export { personNoun, lookOf, portraitPrompt, faceKey, faceFor, faceMarkup, installPortraits, FACE_FRAME, SILHOUETTE } from './portraits.mjs';

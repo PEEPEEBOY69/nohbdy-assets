@@ -19,7 +19,7 @@
 // The scheduling rule is the living world's: IDLE ONLY. A picture starts only
 // when the text queue is empty and no other picture is in flight. The current
 // place goes first, then the places one step away.
-import { buildPersona, faultsIn as defaultFaults } from './persona.mjs';
+import { buildPersona, faultsIn as defaultFaults, firstSentence } from './persona.mjs';
 import { keyOutBackground, alphaBox, fitInto, hardenAlpha, isBlank, FRAME_W, FRAME_H, SCALE } from './pixels.mjs';
 import { placesIn, exitsOf } from './hub.mjs';
 import { displayName } from './places.mjs';
@@ -42,6 +42,7 @@ function hash(s) {
   for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
   return (h >>> 0).toString(36);
 }
+export const keyHash = hash;
 
 export const pictureKey = (worldId, placeKey, name) => `pic|${worldId}|${placeKey}|${hash(String(name || ''))}`;
 // A map's picture changes when any of its places is renamed.
@@ -51,9 +52,8 @@ export const lookKey = (worldId, placeKey, name) => `look|${worldId}|${placeKey}
 
 // The first sentence of the premise, short: the look carries the world when
 // there is one, and this only stands in when there is not.
-function premiseShort(premise) {
-  const s = String(premise || '').trim().split(/(?<=[.!?])\s/)[0] || '';
-  return s.replace(/[.!?]+$/, '').slice(0, 120);
+export function premiseShort(premise) {
+  return firstSentence(premise).replace(/[.!?]+$/, '').slice(0, 120);
 }
 
 export function paintPrompt({ look, name, premise } = {}) {
@@ -231,7 +231,7 @@ export function createPainter(deps) {
       lastStart = now();
       stats.started += 1;
       const prompt = typeof job.prompt === 'function' ? await job.prompt() : job.prompt;
-      const raw = await withTimeout(generate(prompt), timeoutMs);
+      const raw = await withTimeout(generate(prompt, job), timeoutMs);
       const src = raw && typeof raw === 'object' && typeof raw.dataUrl === 'string' ? raw.dataUrl : String(raw || '');
       if (!/^data:image\//.test(src)) throw new Error(`no picture came back: ${src.slice(0, 60)}`);
       const url = await process(src, job);
@@ -271,6 +271,9 @@ export function createPainter(deps) {
     onFailed(fn) { failListeners.add(fn); return () => failListeners.delete(fn); },
     // queued or being painted right now
     working: (key) => jobs.has(key) || current === key,
+    // A job not started yet is let go: nobody is looking at it any more (a
+    // face whose profile closed). The one being painted finishes.
+    cancel: (key) => (current === key ? false : jobs.delete(key)),
     request(job) {
       if (!job || !job.key || failed.has(job.key) || memo.has(job.key)) return false;
       const priority = typeof job.priority === 'number' ? job.priority : 9;
@@ -358,12 +361,17 @@ export function installPainter(deps = {}) {
   const vars = () => (SC.State && SC.State.variables) || {};
   const model = deps.model || null;
   const cache = { get: (k) => deps.store.loadPicture(k), put: (k, v) => deps.store.savePicture(k, v) };
-  // A job carries its own frame and resolution: a place is a square room cut
-  // to 128x112, a map a wide island cut to 600x300.
+  // A job carries its own frame, resolution and negative prompt: a place is a
+  // square room cut to 128x112, a map a wide island cut to 600x300, a face a
+  // head and shoulders cut to 96x128 (world/portraits.mjs).
   const painter = createPainter({
-    generate: (prompt) => {
+    generate: (prompt, job) => {
       const wide = typeof prompt === 'string' && prompt.startsWith('a small world map');
-      return plugin({ prompt, negativePrompt: NEGATIVE, resolution: wide ? '768x512' : RESOLUTION });
+      return plugin({
+        prompt,
+        negativePrompt: (job && job.negative) || NEGATIVE,
+        resolution: (job && job.resolution) || (wide ? '768x512' : RESOLUTION),
+      });
     },
     process: (src, job) => (deps.process || processPicture)(src, doc, job && job.frame),
     cache,

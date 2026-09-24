@@ -40,6 +40,8 @@ import { buildPersona, faultsIn } from './persona.mjs';
 import { installPainter, paintEnabled, setPaintEnabled } from './painter.mjs';
 import { installSidebar } from './sidebar.mjs';
 import { installPhone } from './phone.mjs';
+import { writeTheWorldBank, restoreTalk, startTalkWorld, installTalk } from './talk.mjs';
+import { installPortraits } from './portraits.mjs';
 
 // Harvests the chassis's own tables out of the running engine. The payload
 // already ships them, so generation downloads nothing.
@@ -346,7 +348,16 @@ export async function startBuild(premise, progressId, done, deps = {}) {
       ? nameTheSchool({ setup, model, premise: told, lexicon: lex.lexicon, live, onBatch: () => refreshPlace(deps.SugarCube) })
         .catch((err) => console.warn('Obscura: the school could not be renamed', err))
       : Promise.resolve();
-    const cast = school.then(() => (model.available() && unmapped(vars && vars[CAST_PENDING_KEY]).length
+    // How people talk here (world/talk.mjs): the world's own lines, after the
+    // school's names and before the people brought in and the writer. Until
+    // they land, and wherever a call fails, a conversation uses the lines
+    // built in: nobody is ever silent.
+    startTalkWorld(worldId);
+    const talk = school.then(() => (model.available()
+      ? writeTheWorldBank({ model, store, worldId, faultsIn,
+        persona: () => buildPersona((live() && live().obscuraPremise) || told, getLexicon(deps)) })
+      : null)).catch((err) => console.warn('Obscura: the world\'s lines could not be written', err));
+    const cast = talk.then(() => (model.available() && unmapped(vars && vars[CAST_PENDING_KEY]).length
       ? mapPending({ model, premise: told, sets: castSets(setup), vars: live })
       : null)).catch((err) => console.warn('Obscura: the characters could not be read', err));
     if (model.available() && plan.length) {
@@ -572,8 +583,13 @@ export function installWorldRestore(deps = {}) {
       const events = restoreAuthoredEvents(setup, vars);
       const grown = replayGrowth(setup, vars && vars[GROWTH_KEY]);
       const plugin = deps.plugin || findPlugin('ai', deps.scope);
+      const model = plugin ? sharedModel({ plugin }) : null;
+      // how people talk here: the lines written for this world, from the
+      // store, and the world's bank finished if the page went away half-way
+      restoreTalk({ store: deps.store || sharedStore(), worldId: vars && vars[WORLD_ID_KEY], model, faultsIn,
+        persona: () => buildPersona((varsOf() || {}).obscuraPremise || '', getLexicon(deps)) })
+        .catch((err) => console.warn('Obscura: the world\'s lines could not be restored', err));
       if (plugin) {
-        const model = sharedModel({ plugin });
         startLivingWorld({
           ...deps,
           model,
@@ -781,4 +797,37 @@ export function installLexiconHook(deps = {}) {
   installLexicon(config, () => getLexicon(deps), () => getRenames(deps));
   installedOn.add(config.passages);
   return true;
+}
+
+// People you can talk to (world/talk.mjs) and their faces
+// (world/portraits.mjs), at boot: a restored save can open a conversation on
+// its first screen.
+export function installTalkHook(deps = {}) {
+  try {
+    const SC = deps.SugarCube || (typeof window !== 'undefined' ? window.SugarCube : null);
+    const vars = () => ((deps.state || (SC && SC.State) || {}).variables || {});
+    return installTalk({
+      ...deps,
+      model: () => { const p = deps.plugin || findPlugin('ai', deps.scope); return p ? sharedModel({ plugin: p }) : null; },
+      store: () => deps.store || sharedStore(),
+      persona: () => buildPersona(vars().obscuraPremise || '', getLexicon(deps)),
+      faultsIn,
+    });
+  } catch (err) {
+    console.warn('Obscura: talking could not start', err);
+    return false;
+  }
+}
+
+export function installPortraitsHook(deps = {}) {
+  try {
+    return installPortraits({
+      ...deps,
+      painter: () => (typeof window !== 'undefined' && window.ObscuraPainter ? window.ObscuraPainter.painter : null),
+      enabled: () => paintEnabled(),
+    });
+  } catch (err) {
+    console.warn('Obscura: faces could not start', err);
+    return false;
+  }
 }

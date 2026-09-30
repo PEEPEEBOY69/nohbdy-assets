@@ -15,6 +15,7 @@ import {
 import { memoryLines, SCENE_KEY } from './recall.mjs';
 import { faceMarkup, personNoun } from './portraits.mjs';
 import { substituteWith } from './lexicon.mjs';
+import { switchesOn } from './moments.mjs';
 
 export const TALK_PASSAGE = 'InPersonDialogue';
 export const TALK_MINUTES = 10;
@@ -39,6 +40,20 @@ export const TIER_LABEL = {
 export function outcomeOf(action, s = {}) {
   if (action === 'flirt') return s.attracted && (s.friendship || 0) >= 0 ? 'good' : 'bad';
   if (action === 'tease') return (s.friendship || 0) >= 150 ? 'good' : 'bad';
+  // a number to someone who knows you and likes you, or wants you
+  if (action === 'number') return s.known && ((s.friendship || 0) >= 150 || s.attracted) ? 'good' : 'bad';
+  // out, and to bed: the engine's own willingness where it answers (its
+  // willing_date and willing_sex weigh what they want of the player, their
+  // inclinations, the dates and milestones had); where it does not, someone
+  // drawn to you who has come to feel something, or who wants it
+  if (action === 'askout') {
+    if (typeof s.willingDate === 'boolean') return s.willingDate ? 'good' : 'bad';
+    return s.attracted && ((s.romance || 0) >= 200 || (s.lust || 0) >= 250) ? 'good' : 'bad';
+  }
+  if (action === 'proposition') {
+    if (typeof s.willingSex === 'boolean') return s.willingSex ? 'good' : 'bad';
+    return s.attracted && ((s.lust || 0) >= 300 || s.relationship === 'fuckbuddy' || s.relationshipType === 'romantic') ? 'good' : 'bad';
+  }
   return 'good';
 }
 
@@ -48,6 +63,9 @@ const EFFECTS = {
   compliment: { good: [['friendship', 12]] },
   flirt: { good: [['lust', 15], ['romance', 8]], bad: [['friendship', -10]] },
   tease: { good: [['friendship', 10]], bad: [['friendship', -8]] },
+  number: { good: [['friendship', 5]], bad: [['friendship', -3]] },
+  askout: { good: [['romance', 15]], bad: [['romance', -5]] },
+  proposition: { good: [['lust', 20]], bad: [['friendship', -10], ['lust', -10]] },
   goodbye: { good: [] },
 };
 
@@ -90,10 +108,11 @@ const said = (s) => `<nowiki>${String(s == null ? '' : s).replace(/<\/?nowiki>/g
 
 export const ACTION_LABELS = {
   chat: 'Chat', ask: 'Ask about them', compliment: 'Pay them a compliment',
-  flirt: 'Flirt', tease: 'Tease them', goodbye: 'Say goodbye',
+  flirt: 'Flirt', tease: 'Tease them', number: 'Ask for their number', askout: 'Ask them out',
+  proposition: 'Proposition them', goodbye: 'Say goodbye',
 };
 
-export function talkScreenHtml({ name, first, label, face = '', lines = [], ended = false, place = 'where you were' }) {
+export function talkScreenHtml({ name, first, label, face = '', lines = [], ended = false, place = 'where you were', actions = ACTIONS }) {
   const out = ['<div class="ob-talk">'];
   out.push(`<div class="ob-talk-head">${face}<div class="ob-talk-who"><div class="ob-talk-name">${esc(name)}</div>`
     + `<div class="ob-talk-rel">${esc(label)}</div></div></div>`);
@@ -105,7 +124,7 @@ export function talkScreenHtml({ name, first, label, face = '', lines = [], ende
   }
   out.push('</div><div class="ob-talk-actions">');
   if (ended) out.push(`<<link "Back to ${esc(place)}">><<run setup.ob_talk_leave()>><</link>>`);
-  else for (const a of ACTIONS) out.push(`<<link "${ACTION_LABELS[a]}">><<run setup.ob_talk_act("${a}")>><</link>>`);
+  else for (const a of actions) out.push(`<<link "${ACTION_LABELS[a]}">><<run setup.ob_talk_act("${a}")>><</link>>`);
   out.push('</div></div>');
   // no newlines: printed with <<=, each one would be a line break on screen
   return out.join('');
@@ -172,14 +191,40 @@ export function standingWith(setup, name) {
   const P = setup.people;
   const attitude = (t) => Number(safe(() => P.get_attitude(name, t), 0)) || 0;
   const relationship = safe(() => setup.ob_relationships.relationship_with(name), null) || null;
+  // the engine's yes or no, or null where it has none to give
+  const willing = (fn) => {
+    if (typeof P[fn] !== 'function') return null;
+    try { return !!P[fn](name); } catch { return null; }
+  };
   return {
     known: !!safe(() => P.is_known(name), false),
     friendship: attitude('friendship'),
     romance: attitude('romance'),
+    lust: attitude('lust'),
     attracted: !!safe(() => P.attracted_to_pc(name), false),
     relationship,
     relationshipType: relationship ? safe(() => setup.ob_relationships.relationship_type_with(name), null) : null,
+    willingDate: willing('willing_date'),
+    willingSex: willing('willing_sex'),
   };
+}
+
+// Someone else has the player: the engine's own in_exclusive_relationship,
+// this person not the one, and its cheating switch off. Then nobody else is
+// asked out or to bed (and by text, world/texting.mjs, nothing sexual).
+export function spokenForElsewhere(setup, V, s = {}) {
+  if (s.relationshipType === 'romantic') return false;
+  if (!safe(() => setup.ob_relationships.in_exclusive_relationship(), false)) return false;
+  return !switchesOn(setup, V).includes('cheating');
+}
+
+// What can be said to someone: a number only while it is not known, no date
+// asked for twice, nothing romantic toward anyone else while spoken for.
+export function talkActionsFor(setup, V, name, s = standingWith(setup, name)) {
+  const taken = spokenForElsewhere(setup, V, s);
+  const dated = !!safe(() => (typeof setup.ob_date_with === 'function' ? setup.ob_date_with(name) : null), null);
+  return ACTIONS.filter((a) => (a !== 'number' || !safe(() => setup.people.has_number(name), false))
+    && !(taken && (a === 'askout' || a === 'proposition')) && !(dated && a === 'askout'));
 }
 
 // Who someone is, for their own lines: the engine's words for them in this
@@ -311,6 +356,7 @@ export function installTalk(deps = {}) {
     return talkScreenHtml({
       name: full, first: safe(() => people.firstname(name), full.split(' ')[0]), label,
       face: faceMarkup(SC, name, { Person: PersonClass }), lines: c.lines, ended: c.ended, place: place(v),
+      actions: talkActionsFor(setup, v, name, s),
     });
   };
 
@@ -321,6 +367,7 @@ export function installTalk(deps = {}) {
     const c = convoFor(v, name);
     if (!c) return false;
     const s = standingWith(setup, name);
+    if (!talkActionsFor(setup, v, name, s).includes(action)) return false;
     const tier = tierOf(s);
     const outcome = outcomeOf(action, s);
     const today = v.interactionstoday && v.interactionstoday[name];
@@ -338,6 +385,14 @@ export function installTalk(deps = {}) {
     c.lines = [...c.lines, { action, outcome, you: line.you, them: line.them, raw: line.raw, source: line.source }]
       .slice(-SHOWN_EXCHANGES);
     if (action === 'goodbye') c.ended = true;
+    if (outcome === 'good' && action === 'number') { try { people.learn_number(name); } catch { /* asked again another day */ } }
+    // a yes to going out sets the date (world/dates.mjs); a yes to bed begins it
+    if (outcome === 'good' && action === 'askout' && typeof setup.ob_date_set === 'function') {
+      try { setup.ob_date_set(name); } catch (err) { console.warn('Obscura: the date could not be set', err); }
+    }
+    if (outcome === 'good' && action === 'proposition' && typeof setup.ob_hookup_begin === 'function') {
+      try { setup.ob_hookup_begin(name); return true; } catch (err) { console.warn('Obscura: the hookup could not begin', err); }
+    }
     SC.Engine.play(TALK_PASSAGE);
     return true;
   };

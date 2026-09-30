@@ -14,10 +14,10 @@
 // content is pairs: "you: ... || them: ...".
 import { faultsIn as defaultFaults } from './persona.mjs';
 
-export const ACTIONS = ['chat', 'ask', 'compliment', 'flirt', 'tease', 'goodbye'];
+export const ACTIONS = ['chat', 'ask', 'compliment', 'flirt', 'tease', 'number', 'askout', 'proposition', 'goodbye'];
 export const TIERS = ['stranger', 'acquaintance', 'friend', 'close', 'romantic', 'rival'];
 // Only these can go badly; everything else always lands.
-export const TWO_WAY = ['flirt', 'tease'];
+export const TWO_WAY = ['flirt', 'tease', 'number', 'askout', 'proposition'];
 export const PAIRS_PER_CELL = 3;
 // Eight moments a call: 24 lines of about 110 characters, inside the ~2,900
 // characters the platform ends a reply at (the ai-text-plugin sends no length,
@@ -50,6 +50,9 @@ const DOING = {
   compliment: 'paying them a compliment',
   flirt: 'flirting with them',
   tease: 'teasing them',
+  number: 'asking for their number',
+  askout: 'asking them out',
+  proposition: 'propositioning them for sex',
   goodbye: 'saying goodbye',
 };
 const HOW = {
@@ -58,6 +61,9 @@ const HOW = {
   compliment: { good: 'they take it well' },
   flirt: { good: 'they welcome it', bad: 'they do not want it' },
   tease: { good: 'they take it well', bad: 'it lands badly' },
+  number: { good: 'they give it', bad: 'they will not give it' },
+  askout: { good: 'they say yes', bad: 'they say no' },
+  proposition: { good: 'they want it too', bad: 'they turn it down' },
   goodbye: { good: 'the conversation ends' },
 };
 export const FOOTING = {
@@ -232,6 +238,36 @@ export const BUILT_IN = {
     "you: You look like you slept in a ditch. || them: That's not funny.",
     "you: Still pretending you know what you're doing? || them: Leave it.",
     'you: I saw you walk into that door. Twice. || them: Do you want something, or not?',
+  ],
+  'number|good': [
+    "you: Can I get your number? || them: Go on, then. Use it.",
+    "you: I'd like to be able to find you again. || them: Here. Don't make me wait too long.",
+    "you: Give me a way to reach you. || them: Fine. Only because I like you.",
+  ],
+  'number|bad': [
+    "you: Can I get your number? || them: I don't think so.",
+    "you: I'd like to be able to find you again. || them: You found me today. That's enough.",
+    "you: Give me a way to reach you. || them: Not yet.",
+  ],
+  'askout|good': [
+    "you: Let me take you out. || them: I was hoping you'd ask.",
+    "you: Spend an evening with me. || them: Yes. Tell me when.",
+    "you: I want to see you somewhere that isn't here. || them: Then let's.",
+  ],
+  'askout|bad': [
+    "you: Let me take you out. || them: I don't think that's a good idea.",
+    "you: Spend an evening with me. || them: I'm busy. For a while.",
+    "you: I want to see you somewhere that isn't here. || them: This is where you'll see me.",
+  ],
+  'proposition|good': [
+    "you: I want you. Tonight. || them: Then stop talking and take me somewhere.",
+    "you: Come to bed with me. || them: I thought you'd never ask.",
+    "you: I can't stop thinking about getting you out of those clothes. || them: So stop thinking.",
+  ],
+  'proposition|bad': [
+    "you: I want you. Tonight. || them: Not happening.",
+    "you: Come to bed with me. || them: You've got the wrong idea about me.",
+    "you: I can't stop thinking about getting you out of those clothes. || them: Keep thinking. That's all you'll get.",
   ],
   'goodbye|good': [
     'you: I should get going. || them: Go on, then. See you around.',

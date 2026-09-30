@@ -334,7 +334,7 @@ const pcOf = (setup, V) => (setup && typeof setup.pc === 'function' ? setup.pc()
 
 // The switches the player has on: their own, or the engine's defaults for a
 // player who never opened Options.
-function switchesOn(setup, V) {
+export function switchesOn(setup, V) {
   if (Array.isArray(V && V.kinkcontent)) return V.kinkcontent;
   try { return setup && typeof setup.ob_default_kinkcontent === 'function' ? setup.ob_default_kinkcontent() : []; } catch { return []; }
 }

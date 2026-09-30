@@ -15,11 +15,13 @@ import { ICONS } from './sidebar.mjs';
 import { latestLine } from './recall.mjs';
 import { calendarRead } from './timetable.mjs';
 import { firstSentence } from './persona.mjs';
+import { unreadCount, messagesScreenHtml, MESSAGES_PASSAGE } from './texting.mjs';
 
 const esc = s => String(s == null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 const CALENDAR = 'M4.5 6.5h15v14h-15z M4.5 10.5h15 M8.5 4v5 M15.5 4v5 M8 14h2 M12 14h2 M16 14h2 M8 17h2 M12 17h2';
+const MESSAGES = 'M4.5 5.5h15v10.5h-8.5l-4.5 3.5v-3.5h-2z M8 9.5h8 M8 12.5h5';
 
 const icon = (d) => `<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.7" `
   + `stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg>`;
@@ -34,8 +36,12 @@ function header(setup) {
     + `<span class="ob-phone-date">${esc(date)}</span></div>`;
 }
 
-export function phoneHome(setup) {
+// The home screen; Messages carries the count of texts not yet read
+// (world/texting.mjs).
+export function phoneHome(setup, V = {}) {
+  const unread = unreadCount(V);
   const apps = [
+    [`Messages${unread ? ` (${unread})` : ''}`, MESSAGES, open(MESSAGES_PASSAGE)],
     ['Contacts', ICONS.people, open('ObscuraPhoneContacts')],
     ['Calendar', CALENDAR, open('ObscuraPhoneCalendar')],
     ['Map', ICONS.map, '<<run Dialog.close()>><<run setTimeout(function () { Dialog.setup("Maps", "maps"); '
@@ -65,8 +71,14 @@ export function phoneContacts(setup, V) {
   // someone the player brought keeps their own description (world/cast.mjs)
   const brought = (V && V.obscuraCast) || {};
   const first = (s) => firstSentence(s).slice(0, 140);
+  // someone whose number the player has can be texted from here (world/texting.mjs)
+  const textable = (key) => {
+    if (!setup || typeof setup.ob_text_open !== 'function') return false;
+    try { return !!(setup.people && setup.people.has_number(key)); } catch { return false; }
+  };
+  const text = (key) => (textable(key) ? `<<link "Text">><<run setup.ob_text_open(${JSON.stringify(key)})>><</link>>` : '');
   const rows = list.length
-    ? list.map(p => `<div class="ob-phone-row">${p.fav ? '<b>' : ''}${esc(p.name)}${p.fav ? '</b>' : ''}`
+    ? list.map(p => `<div class="ob-phone-row">${p.fav ? '<b>' : ''}${esc(p.name)}${p.fav ? '</b>' : ''}${text(p.key)}`
       + `${p.relationship ? `<span class="ob-phone-sub">${esc(p.relationship)}</span>` : ''}`
       + `${brought[p.key] && brought[p.key].profile ? `<span class="ob-phone-sub">${esc(first(brought[p.key].profile))}</span>` : ''}`
       + `${latestLine(V, p.key) ? `<span class="ob-phone-sub ob-phone-recall">${esc(latestLine(V, p.key))}</span>` : ''}</div>`).join('')
@@ -118,6 +130,10 @@ export function installPhone(deps = {}) {
   setup.ob_obscura_phone = (view) => {
     if (view === 'contacts') return phoneContacts(setup, V());
     if (view === 'calendar') return phoneCalendar(setup, V(), 7, SC.State.temporary);
+    if (view === 'messages') {
+      return typeof setup.ob_text_messages === 'function'
+        ? setup.ob_text_messages(header(setup)) : messagesScreenHtml([], { head: header(setup) });
+    }
     return phoneHome(setup, V());
   };
   return true;

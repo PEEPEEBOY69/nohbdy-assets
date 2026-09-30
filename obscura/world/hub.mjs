@@ -29,6 +29,7 @@ import {
 import { mapsScreenHtml } from './mapdraw.mjs';
 import { ACTIONS, actionsFor, doAction, priceText, SCREEN_KEY, SCREEN_PASSAGE } from './actions.mjs';
 import { workLinks } from './workscreen.mjs';
+import { dateLinks } from './datescreen.mjs';
 
 // Read by the modules that always imported them from here.
 export { placesIn, startingPlace };
@@ -177,9 +178,10 @@ export function hubHtml(setup, V, opts = {}) {
   }
 
   // what this place is for (world/actions.mjs), a price where one is due;
-  // and work, where it hires (world/workscreen.mjs)
+  // work, where it hires (world/workscreen.mjs); a date due here, and
+  // tonight's plans (world/datescreen.mjs)
   const doing = here ? actionsFor(here, V, setup) : [];
-  const work = here ? workLinks(V, { key: V.location, ...here }) : [];
+  const work = [...(here ? workLinks(V, { key: V.location, ...here }) : []), ...(here ? dateLinks(setup, V, { key: V.location, ...here }) : [])];
   if (doing.length || work.length) {
     lines.push('<div class="ob-hub-do">');
     for (const id of doing) {

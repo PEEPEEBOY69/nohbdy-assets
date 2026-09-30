@@ -13,7 +13,7 @@ export {
   loadAssetManifest, installWorldRestore, startLivingWorld, markWorldApplied, worldMissing,
   installPainterHook, installSidebarHook, installPhoneHook, startWriter, installGuardHook, installWriterControls,
   installCastHook, getRenames, installTalkHook, installPortraitsHook, installNeedsHook, installShopHook, goodsSignature,
-  installWorkHook, installRentHook,
+  installWorkHook, installRentHook, installTextingHook, installDatesHook,
 } from './flow.mjs';
 export { readImport, characterFromCard, loreFromJson, loreFromText, cardTextFromPng, worldBriefFrom } from './imports.mjs';
 export { castSets, buildCastPrompt, parseCast, castName, addCastMember, mapPending, joinPending, settleIn, CAST_KEY, CAST_PENDING_KEY } from './cast.mjs';
@@ -49,6 +49,13 @@ export { buildMomentsPrompt, parseMoments, generateMoments, bodyOf } from './mom
 export { momentLog, shiftScreenHtml, workScreenHtml, workLinks } from './workscreen.mjs';
 export { study, homework, train, dance, subjectOf } from './study.mjs';
 export { RENT, rentDue, payRent } from './rent.mjs';
+export { TEXT_ACTIONS, textCells, buildTextPrompt, parseTexts, writeTextBank, pickText } from './textbank.mjs';
+export { sendText, textFirst, unreadCount, textScreenHtml, messageRows, textBankStatus } from './texting.mjs';
+export { setDate, dateWith, dateHere, standUps, datesOf } from './dates.mjs';
+export { DATE_FLOW, DATE_TYPES, applyDateChoice, eligibleDateMoments } from './datemoments.mjs';
+export { buildDatePrompt, parseDateWords, generateDateWords, personBody, dateLogStatus } from './datebank.mjs';
+export { eveningHtml, dateLinks, EVENING_KEY } from './datescreen.mjs';
+export { OFFERS, offersFor, takeOffer } from './relations.mjs';
 export { placeRoster, generatePlaceNames, installPlaceNames, displayName } from './places.mjs';
 export {
   pruneDanglingEvents, registerAuthoredEvent, authoredEventText, freeSlot,

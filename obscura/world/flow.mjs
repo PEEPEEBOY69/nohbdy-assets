@@ -43,7 +43,15 @@ import { buildPersona, faultsIn } from './persona.mjs';
 import { installPainter, paintEnabled, setPaintEnabled } from './painter.mjs';
 import { installSidebar } from './sidebar.mjs';
 import { installPhone } from './phone.mjs';
-import { writeTheWorldBank, restoreTalk, startTalkWorld, installTalk } from './talk.mjs';
+import { writeTheWorldBank, restoreTalk, startTalkWorld, installTalk, whoTheyAre, standingWith, tierOf } from './talk.mjs';
+import { FOOTING } from './talkbank.mjs';
+import { installTexting, useTextLog, restoreTexts, writeTheTextBank } from './texting.mjs';
+import { emptyTextLog } from './textbank.mjs';
+import { installDates, datesOf } from './dates.mjs';
+import { installDateScreen } from './datescreen.mjs';
+import { installRelations } from './relations.mjs';
+import { dateContext } from './datemoments.mjs';
+import { useDateLog, emptyDateLog, restoreDateWords, writeDateWords, personBody } from './datebank.mjs';
 import { ensureRent, installRent } from './rent.mjs';
 import { installWork, restoreMoments, writeLineMoments, useMomentLog } from './workscreen.mjs';
 import { jobsOf } from './work.mjs';
@@ -283,6 +291,9 @@ export async function startBuild(premise, progressId, done, deps = {}) {
     }
     // no work's moments written yet (world/workscreen.mjs)
     useMomentLog(worldId, emptyMomentsLog());
+    // a new world's texts and its people's date words: none yet
+    useTextLog(worldId, emptyTextLog());
+    useDateLog(worldId, emptyDateLog());
     markWorldApplied(worldId);
     stepTo('save');
     const store = deps.store || sharedStore();
@@ -694,6 +705,16 @@ export function installWorldRestore(deps = {}) {
       // and the moments written for the work the player holds, any line of it
       // still unwritten written now (world/workscreen.mjs)
       ensureRent(vars);
+      // the world's texts, finished if the player has anyone's number; the
+      // words written for the people they date, and for a date set before the
+      // page went away (world/texting.mjs, world/datebank.mjs)
+      restoreTexts({ store: deps.store || sharedStore(), worldId: vars && vars[WORLD_ID_KEY], model, faultsIn, setup, V: vars,
+        sender: bodyOf(setup, vars),
+        persona: () => buildPersona((varsOf() || {}).obscuraPremise || '', getLexicon(deps)) })
+        .catch((err) => console.warn('Obscura: the texts could not be restored', err));
+      restoreDateWords({ store: deps.store || sharedStore(), worldId: vars && vars[WORLD_ID_KEY] })
+        .then(() => { for (const d of datesOf(vars || {}).list) if (d.state === 'set') writeWordsFor(setup, vars, deps, d.with); })
+        .catch((err) => console.warn('Obscura: the date words could not be restored', err));
       restoreMoments({ store: deps.store || sharedStore(), worldId: vars && vars[WORLD_ID_KEY], model, faultsIn,
         jobs: Object.entries(jobsOf(vars)).map(([key, job]) => ({ line: job.line, placeName: (geoOf(vars, setup).places[key] || { name: key }).name })),
         who: bodyOf(setup, vars),
@@ -870,6 +891,100 @@ export function installWorkHook(deps = {}) {
       },
     });
   } catch { return false; }
+}
+
+// Texting (world/texting.mjs): the engine's PhoneText, its unread count and
+// people who text first; the world's texts written in the background the
+// first time the player is given a number.
+export function installTextingHook(deps = {}) {
+  try {
+    const SC = deps.SugarCube || (typeof window !== 'undefined' ? window.SugarCube : null);
+    const V = () => (SC && SC.State && SC.State.variables) || null;
+    return installTexting({
+      ...deps,
+      SugarCube: SC,
+      onNumber: () => {
+        const v = V();
+        const plugin = deps.plugin || findPlugin('ai', deps.scope);
+        const model = plugin ? sharedModel({ plugin }) : null;
+        if (!model || !v) return;
+        writeTheTextBank({ model, store: deps.store || sharedStore(), worldId: v[WORLD_ID_KEY], faultsIn,
+          sender: bodyOf(SC && SC.setup, v),
+          persona: () => buildPersona((V() || {}).obscuraPremise || '', getLexicon(deps)) })
+          .catch((err) => console.warn('Obscura: the texts could not be written', err));
+      },
+    });
+  } catch (err) {
+    console.warn('Obscura: texting could not start', err);
+    return false;
+  }
+}
+
+// Who a date is with, for their words: the engine's words for them (as talk
+// reads them), both bodies, how they stand, what they remember.
+function whoForDate(setup, vars, name) {
+  const SC = { setup, State: { variables: vars } };
+  const tier = tierOf(standingWith(setup, name));
+  const PersonClass = typeof window !== 'undefined' ? window.Person : null;
+  const who = whoTheyAre(SC, name, tier, PersonClass);
+  let p = {};
+  try { p = setup.people.pronouns(name) || {}; } catch { p = {}; }
+  let first = name;
+  try { first = setup.people.firstname(name) || name; } catch { first = name; }
+  return {
+    name: first,
+    description: `${who.description}${who.profile ? ` In their own words: ${who.profile}` : ''}`,
+    body: personBody(setup, name),
+    playerBody: bodyOf(setup, vars),
+    footing: FOOTING[tier] || FOOTING.acquaintance,
+    pronouns: `${p.ps || 'they'} and ${p.po || 'them'}`,
+    memories: who.memories,
+  };
+}
+
+// A person's date and night words (world/datebank.mjs), in the background;
+// a no-op once they are written.
+function writeWordsFor(setup, vars, deps, name) {
+  if (!setup || !vars || !vars.people || !vars.people[name]) return;
+  const plugin = deps.plugin || findPlugin('ai', deps.scope);
+  const model = plugin ? sharedModel({ plugin }) : null;
+  if (!model) return;
+  writeDateWords({ model, store: deps.store || sharedStore(), worldId: vars[WORLD_ID_KEY], name, faultsIn,
+    who: whoForDate(setup, vars, name), ctx: dateContext(setup, vars, { with: name }),
+    persona: () => buildPersona(vars.obscuraPremise || '', getLexicon(deps)) })
+    .catch((err) => console.warn('Obscura: a date\'s words could not be written', err));
+}
+
+// Dates (world/dates.mjs), the date on screen (world/datescreen.mjs) and what
+// it leads to (world/relations.mjs); a person's words written the moment a
+// date or a night is set with them.
+export function installDatesHook(deps = {}) {
+  try {
+    const SC = deps.SugarCube || (typeof window !== 'undefined' ? window.SugarCube : null);
+    const setup = SC && SC.setup;
+    const ok = installDates({ ...deps, SugarCube: SC }) && installDateScreen({ ...deps, SugarCube: SC })
+      && installRelations({ ...deps, SugarCube: SC });
+    if (!ok || !setup || setup.ob_date_set.__obscuraWords) return ok;
+    const vars = () => SC.State.variables;
+    const set = setup.ob_date_set;
+    const withWords = (name, kind) => {
+      const d = set(name, kind);
+      if (d) writeWordsFor(setup, vars(), deps, name);
+      return d;
+    };
+    withWords.__obscuraWords = true;
+    setup.ob_date_set = withWords;
+    const begin = setup.ob_hookup_begin;
+    setup.ob_hookup_begin = (name) => {
+      const r = begin(name);
+      if (r) writeWordsFor(setup, vars(), deps, name);
+      return r;
+    };
+    return ok;
+  } catch (err) {
+    console.warn('Obscura: dates could not start', err);
+    return false;
+  }
 }
 
 // The week's rent (world/rent.mjs): the engine's Monday evening, answered.

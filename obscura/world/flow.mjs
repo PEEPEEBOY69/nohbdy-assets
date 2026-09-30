@@ -44,6 +44,10 @@ import { installPainter, paintEnabled, setPaintEnabled } from './painter.mjs';
 import { installSidebar } from './sidebar.mjs';
 import { installPhone } from './phone.mjs';
 import { writeTheWorldBank, restoreTalk, startTalkWorld, installTalk } from './talk.mjs';
+import { ensureRent, installRent } from './rent.mjs';
+import { installWork, restoreMoments, writeLineMoments, useMomentLog } from './workscreen.mjs';
+import { jobsOf } from './work.mjs';
+import { emptyMomentsLog, bodyOf } from './momentbank.mjs';
 import { installPortraits } from './portraits.mjs';
 import { installNeeds } from './needs.mjs';
 import { installShop } from './shop.mjs';
@@ -274,7 +278,11 @@ export async function startBuild(premise, progressId, done, deps = {}) {
       vars[WORLD_ID_KEY] = worldId;
       vars[GROWTH_KEY] = [];
       vars[EVENTS_KEY] = {};
+      // the week's rent on the player's room (world/rent.mjs)
+      ensureRent(vars);
     }
+    // no work's moments written yet (world/workscreen.mjs)
+    useMomentLog(worldId, emptyMomentsLog());
     markWorldApplied(worldId);
     stepTo('save');
     const store = deps.store || sharedStore();
@@ -682,6 +690,15 @@ export function installWorldRestore(deps = {}) {
       restoreTalk({ store: deps.store || sharedStore(), worldId: vars && vars[WORLD_ID_KEY], model, faultsIn,
         persona: () => buildPersona((varsOf() || {}).obscuraPremise || '', getLexicon(deps)) })
         .catch((err) => console.warn('Obscura: the world\'s lines could not be restored', err));
+      // the week's rent on a world made before there was one (world/rent.mjs),
+      // and the moments written for the work the player holds, any line of it
+      // still unwritten written now (world/workscreen.mjs)
+      ensureRent(vars);
+      restoreMoments({ store: deps.store || sharedStore(), worldId: vars && vars[WORLD_ID_KEY], model, faultsIn,
+        jobs: Object.entries(jobsOf(vars)).map(([key, job]) => ({ line: job.line, placeName: (geoOf(vars, setup).places[key] || { name: key }).name })),
+        who: bodyOf(setup, vars),
+        persona: () => buildPersona((varsOf() || {}).obscuraPremise || '', getLexicon(deps)) })
+        .catch((err) => console.warn('Obscura: the moments could not be restored', err));
       if (plugin) {
         startLivingWorld({
           ...deps,
@@ -829,6 +846,35 @@ export function installNeedsHook(deps = {}) {
 // snack.
 export function installShopHook(deps = {}) {
   try { return installShop(deps); } catch { return false; }
+}
+
+// Work at the world's places (world/workscreen.mjs): the shift, its moments,
+// the Work screen; a line of work's moments written for the world when the
+// player first takes it.
+export function installWorkHook(deps = {}) {
+  try {
+    const SC = deps.SugarCube || (typeof window !== 'undefined' ? window.SugarCube : null);
+    const V = () => (SC && SC.State && SC.State.variables) || null;
+    return installWork({
+      ...deps,
+      SugarCube: SC,
+      onHired: ({ line, placeName }) => {
+        const v = V();
+        const plugin = deps.plugin || findPlugin('ai', deps.scope);
+        const model = plugin ? sharedModel({ plugin }) : null;
+        if (!model || !v) return;
+        writeLineMoments({ model, store: deps.store || sharedStore(), worldId: v[WORLD_ID_KEY], line, placeName, faultsIn,
+          who: bodyOf(SC && SC.setup, v),
+          persona: () => buildPersona((V() || {}).obscuraPremise || '', getLexicon(deps)) })
+          .catch((err) => console.warn('Obscura: the moments could not be written', err));
+      },
+    });
+  } catch { return false; }
+}
+
+// The week's rent (world/rent.mjs): the engine's Monday evening, answered.
+export function installRentHook(deps = {}) {
+  try { return installRent(deps); } catch { return false; }
 }
 
 // The phone's screens (world/phone.mjs). None of the original's shipped.

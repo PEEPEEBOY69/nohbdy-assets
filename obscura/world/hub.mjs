@@ -28,6 +28,7 @@ import {
 } from './geography.mjs';
 import { mapsScreenHtml } from './mapdraw.mjs';
 import { ACTIONS, actionsFor, doAction, priceText, SCREEN_KEY, SCREEN_PASSAGE } from './actions.mjs';
+import { workLinks } from './workscreen.mjs';
 
 // Read by the modules that always imported them from here.
 export { placesIn, startingPlace };
@@ -175,14 +176,19 @@ export function hubHtml(setup, V, opts = {}) {
     lines.push('<div class="ob-hub-exits ob-hub-noexit">Nowhere to go from here yet.</div>');
   }
 
-  // what this place is for (world/actions.mjs), a price where one is due
-  const doing = here ? actionsFor(here) : [];
-  if (doing.length) {
+  // what this place is for (world/actions.mjs), a price where one is due;
+  // and work, where it hires (world/workscreen.mjs)
+  const doing = here ? actionsFor(here, V, setup) : [];
+  const work = here ? workLinks(V, { key: V.location, ...here }) : [];
+  if (doing.length || work.length) {
     lines.push('<div class="ob-hub-do">');
     for (const id of doing) {
       const a = ACTIONS[id];
       const label = a.price ? `${a.label} (${priceText(a.price)})` : a.label;
       lines.push(`<<link "${esc(label)}">><<run setup.ob_obscura_act("${id}")>><</link>>`);
+    }
+    for (const w of work) {
+      lines.push(w.label ? `<<link "${esc(w.label)}">><<run ${w.run}>><</link>>` : `<span class="ob-hub-note">${esc(w.text)}</span>`);
     }
     lines.push('</div>');
   }
@@ -329,8 +335,8 @@ export function installHub(deps = {}) {
   setup.ob_obscura_act = (id) => {
     const v = V();
     const place = geoNow().places[v.location];
-    if (!place || !actionsFor(place).includes(id)) return false;
-    const done = doAction(setup, v, id);
+    if (!place || !actionsFor(place, v, setup).includes(id)) return false;
+    const done = doAction(setup, v, id, { key: v.location, ...place });
     if (done.screen) {
       v[SCREEN_KEY] = { place: v.location, screen: done.screen };
       SC.Engine.play(SCREEN_PASSAGE);

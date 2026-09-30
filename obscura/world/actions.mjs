@@ -5,17 +5,21 @@
 // place of that kind is for. Every action takes the world's time and moves
 // the engine's needs and money through its own functions (setup.ob_needs,
 // setup.ob_time, $pcmoney); a menu, a shop's wares and the home's stores open
-// their own screen (world/shop.mjs). Learning and training places are v38.
+// their own screen (world/shop.mjs). Study, homework, training and dancing go
+// through world/study.mjs.
+import { study, homework, train, dance } from './study.mjs';
 
 export const ACTIONS_BY_KIND = {
-  home: ['sleep', 'nap', 'basin', 'stores'],
+  home: ['sleep', 'nap', 'basin', 'stores', 'study', 'homework'],
   lodging: ['rentbed', 'rest'],
   privy: ['privy'],
   bath: ['wash'],
   food: ['menu'],
   shop: ['wares'],
+  learning: ['study', 'homework'],
+  training: ['train'],
   healer: ['healer'],
-  entertainment: ['fun'],
+  entertainment: ['fun', 'dance'],
   gathering: ['company'],
   outdoors: ['sit'],
 };
@@ -35,9 +39,16 @@ export const ACTIONS = {
   fun: { label: 'Spend an hour here', minutes: 60, price: 12 },
   company: { label: 'Spend time among people', minutes: 60 },
   sit: { label: 'Sit a while', minutes: 30 },
+  study: { label: 'Study for an hour' },
+  // only with homework set (the engine's own check)
+  homework: { label: 'Do homework for an hour',
+    when: (V, setup) => { try { return !!(setup && setup.School && setup.School.has_homework()); } catch { return false; } } },
+  train: { label: 'Train for an hour' },
+  dance: { label: 'Dance for an hour' },
 };
 
-export const actionsFor = (place) => (place && ACTIONS_BY_KIND[place.kind]) || [];
+export const actionsFor = (place, V = {}, setup = null) => ((place && ACTIONS_BY_KIND[place.kind]) || [])
+  .filter((id) => !ACTIONS[id].when || ACTIONS[id].when(V, setup));
 
 // Which screen is open (world/shop.mjs): the place, and its menu, wares or the
 // home's stores.
@@ -62,10 +73,11 @@ export function restRate(V) {
   return rate > 0 ? rate : BASE_REST_RATE;
 }
 
-// What hangs on the home's wall calms, a point an hour slept.
-function wallCalm(setup, V, minutes) {
-  const wall = V && V.obscuraHome && V.obscuraHome.wall;
-  const relax = wall ? Number(wall.relax) : 0;
+// What hangs on the home's wall, and a seat to rest in, calm: their points an
+// hour slept or rested.
+function homeCalm(setup, V, minutes) {
+  const home = (V && V.obscuraHome) || {};
+  const relax = (Number(home.wall && home.wall.relax) || 0) + (Number(home.seat && home.seat.relax) || 0);
   if (relax > 0) setup.ob_needs.increase_need('Relaxation', Math.round(relax * (minutes / 60)));
 }
 
@@ -75,7 +87,7 @@ export const priceText = (n) => `$${n}`;
 // What an action does, through the engine: a line for the hub, a screen to
 // open, or a refusal (what cannot be paid for costs nothing and takes no
 // time).
-export function doAction(setup, V, id) {
+export function doAction(setup, V, id, place = null) {
   const a = ACTIONS[id];
   if (!a) return { line: '' };
   if (a.screen) return { screen: a.screen };
@@ -94,7 +106,7 @@ export function doAction(setup, V, id) {
     case 'sleep': {
       const minutes = minutesToMorning(V);
       N.sleep(minutes, restRate(V));
-      wallCalm(setup, V, minutes);
+      homeCalm(setup, V, minutes);
       return { line: `You sleep, and wake at ${clock()}.${woke()}` };
     }
     case 'rentbed':
@@ -102,6 +114,7 @@ export function doAction(setup, V, id) {
       return { line: `${paid}You sleep in a rented bed, and wake at ${clock()}.${woke()}` };
     case 'nap':
       N.sleep(60, restRate(V));
+      homeCalm(setup, V, 60);
       return { line: `You nap for an hour.${woke()}` };
     case 'rest':
       N.sleep(60, 90);
@@ -136,6 +149,14 @@ export function doAction(setup, V, id) {
       N.increase_need('Relaxation', 100);
       T.advance_time(a.minutes);
       return { line: 'You sit a while and watch the world go by.' };
+    case 'study':
+      return study(setup, V, place);
+    case 'homework':
+      return homework(setup, V, place);
+    case 'train':
+      return train(setup, V);
+    case 'dance':
+      return dance(setup, V);
     default:
       return { line: '' };
   }

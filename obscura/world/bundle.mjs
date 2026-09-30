@@ -13,6 +13,7 @@ export {
   loadAssetManifest, installWorldRestore, startLivingWorld, markWorldApplied, worldMissing,
   installPainterHook, installSidebarHook, installPhoneHook, startWriter, installGuardHook, installWriterControls,
   installCastHook, getRenames, installTalkHook, installPortraitsHook, installNeedsHook, installShopHook, goodsSignature,
+  installWorkHook, installRentHook,
 } from './flow.mjs';
 export { readImport, characterFromCard, loreFromJson, loreFromText, cardTextFromPng, worldBriefFrom } from './imports.mjs';
 export { castSets, buildCastPrompt, parseCast, castName, addCastMember, mapPending, joinPending, settleIn, CAST_KEY, CAST_PENDING_KEY } from './cast.mjs';
@@ -42,6 +43,12 @@ export {
 } from './goods.mjs';
 export { buy, shopScreenHtml, storedFoods, worldNameFor } from './shop.mjs';
 export { guardRedirect, FAILURE_PASSAGE, FAILURE_KEY } from './needs.mjs';
+export { LINES as WORK_LINES, LADDER, jobsOf, askForWork, shiftOn } from './work.mjs';
+export { MOMENT_TYPES, eligibleMoments, applyChoice } from './moments.mjs';
+export { buildMomentsPrompt, parseMoments, generateMoments, bodyOf } from './momentbank.mjs';
+export { momentLog, shiftScreenHtml, workScreenHtml, workLinks } from './workscreen.mjs';
+export { study, homework, train, dance, subjectOf } from './study.mjs';
+export { RENT, rentDue, payRent } from './rent.mjs';
 export { placeRoster, generatePlaceNames, installPlaceNames, displayName } from './places.mjs';
 export {
   pruneDanglingEvents, registerAuthoredEvent, authoredEventText, freeSlot,

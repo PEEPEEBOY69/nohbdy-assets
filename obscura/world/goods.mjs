@@ -47,7 +47,7 @@ export const MENU_ROLES = [
 // (only the 36 its code names survive), so a bed of the original's is not
 // there to stand on. A bed sets how fast sleep restores rest (the engine's
 // beds run 110 to 150 an hour); what hangs on the wall calms a point an hour
-// slept.
+// slept, and a seat while resting too; a lamp makes study at home go faster.
 export const SHOP_ROLES = {
   food: [
     role(19, 'a travel snack', 'food', 'granola bar'),
@@ -81,6 +81,10 @@ export const SHOP_ROLES = {
     { ...role(43, 'the best bed there is', 'home', 'bed'), slot: 'bed', rest: 150, price: 3000 },
     { ...role(44, 'a painting for the wall', 'home', 'wall'), slot: 'wall', relax: 1, price: 120 },
     { ...role(45, 'a portrait for the wall', 'home', 'wall'), slot: 'wall', relax: 1, price: 80 },
+    { ...role(46, 'a lamp or a light', 'home', 'light'), slot: 'light', study: 1.25, price: 40 },
+    { ...role(47, 'a fine lamp', 'home', 'light'), slot: 'light', study: 1.4, price: 150 },
+    { ...role(48, 'a chair, a stool or a bench', 'home', 'seat'), slot: 'seat', relax: 1, price: 60 },
+    { ...role(49, 'a fine seat', 'home', 'seat'), slot: 'seat', relax: 2, price: 250 },
   ],
 };
 
@@ -242,7 +246,7 @@ const FALLBACK_MENU = [['Hot meal', 1], ['Stew', 2], ['Bread and filling', 5], [
 const FALLBACK_SHOP = {
   food: [['Travel biscuits', 19], ['Nuts', 21], ['Fruit', 22], ['Something sweet', 24], ['Water', 28]],
   clothes: [['Shirt', 30], ['Trousers', 31], ['Coat', 34], ['Shoes', 36], ['Boots', 37], ['Hat', 39]],
-  goods: [['A better bed', 41], ['A fine bed', 42], ['A painting', 44]],
+  goods: [['A better bed', 41], ['A fine bed', 42], ['A painting', 44], ['A lamp', 46], ['A stool', 48]],
 };
 const CLOTHES_WORDS = /cloth|tailor|dress|wear|boot|shoe|cobbler|\bhat|rag|silk|weav|thread|garment|coat|stitch|linen|wool|leather|fashion|apparel|boutique|seam|needle|loom|\bfur|hide/i;
 const FOOD_WORDS = /bak|bread|market|grocer|fish|meat|butcher|stall|pantry|food|fruit|cheese|provision|larder|deli|spice|mill|grain|sweet|candy|confection|salt|smok|cellar|granary|harvest|produce/i;
@@ -283,7 +287,7 @@ export function stockOf(entry, setup) {
     if (!r) return null;
     if (r.type === 'home') {
       return { name: it.name, type: 'home', item: r.item, price: r.price, role: r.id, slot: r.slot,
-        ...(r.rest ? { rest: r.rest } : {}), ...(r.relax ? { relax: r.relax } : {}) };
+        ...(r.rest ? { rest: r.rest } : {}), ...(r.relax ? { relax: r.relax } : {}), ...(r.study ? { study: r.study } : {}) };
     }
     return { name: it.name, type: r.type, item: r.item, price: priceOf(setup, r.type, r.item), role: r.id };
   }).filter(Boolean);

@@ -45,7 +45,8 @@ function placeAtHome(V, s) {
   const home = V[HOME_KEY] || (V[HOME_KEY] = {});
   if (home[s.slot] && home[s.slot].name === s.name) return { ok: false, line: `You already have the ${s.name} at home.` };
   if (moneyOf(V) < s.price) return { ok: false, line: `You cannot afford the ${s.name} (${priceText(s.price)}).` };
-  home[s.slot] = s.slot === 'bed' ? { name: s.name, rest: s.rest } : { name: s.name, relax: s.relax };
+  home[s.slot] = { name: s.name, ...(s.rest ? { rest: s.rest } : {}), ...(s.relax ? { relax: s.relax } : {}),
+    ...(s.study ? { study: s.study } : {}) };
   V.pcmoney = moneyOf(V) - s.price;
   return { ok: true, line: `You pay ${priceText(s.price)} for ${s.name}. It is in your room at home.` };
 }

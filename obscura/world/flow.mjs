@@ -36,6 +36,8 @@ import {
   installEvents, restoreAuthoredEvents, pruneDanglingEvents, STATE_KEY as EVENTS_KEY,
 } from './events.mjs';
 import { generatePlaceNames, installPlaceNames, STATE_KEY as PLACES_KEY } from './places.mjs';
+import { GEO_KEY, LAYOUT_KEY, buildGeography, geoNames, placesIn } from './geography.mjs';
+import { generateLayout } from './layout.mjs';
 import { buildPersona, faultsIn } from './persona.mjs';
 import { installPainter, paintEnabled, setPaintEnabled } from './painter.mjs';
 import { installSidebar } from './sidebar.mjs';
@@ -313,6 +315,8 @@ export async function startBuild(premise, progressId, done, deps = {}) {
       if (told !== (vars.obscuraPremise || '')) vars.obscuraPremise = told;
       vars.obscuraWorld = world;
       vars[RENAMES_KEY] = { ...emptyRenames(), exact: schoolTooltips(setup, lex.lexicon) };
+      // the world's own places, asked for after the hand-over (world/layout.mjs)
+      if (model.available()) vars[LAYOUT_KEY] = 'pending';
     }
     // The people the player brought wait in the save from here (world/cast.mjs).
     if (vars && brought) {
@@ -329,14 +333,15 @@ export async function startBuild(premise, progressId, done, deps = {}) {
     const shown = ui();
     if (shown) shown.ready(enterWorld); else enterWorld();
 
-    // The geography, after the hand-over. The map is carried whole, so
-    // without this every place keeps the original's name - Blodgett
-    // Gymnasium in a rain-dark city. Places are shown from the hub on, and
-    // character creation takes longer than this one call; named up front it
-    // was 118 of 141 seconds of waiting (perchance.org, 2026-09-23). Asked
-    // before the writer starts, so it is first in the queue.
+    // The world's own places, after the hand-over (world/layout.mjs). Without
+    // them every world is the original's campus and town - Blodgett Gymnasium
+    // in a rain-dark city. Places are shown from the hub on, and character
+    // creation takes longer than this one call; the places named up front were
+    // 118 of 141 seconds of waiting (perchance.org, 2026-09-23). Asked before
+    // anything else, so it is first in the queue.
     if (model.available()) {
-      nameThePlaces({ setup, model, persona: buildPersona(told, lex.lexicon), live, SugarCube: deps.SugarCube });
+      layTheWorld({ setup, model, persona: buildPersona(told, lex.lexicon), live, SugarCube: deps.SugarCube,
+        timetable: !(world && world.systems && world.systems.timetable === false) });
     }
 
     // Then, one queue in the order the player meets them: the school's names
@@ -395,9 +400,8 @@ export async function loadAssetManifest(base, fetchFn) {
   }
 }
 
-// Names the places in the background and shows them the moment they land:
-// the names live in a story variable, and a location on screen is shown again.
-// Shows the place again, so names that just landed are read on it.
+// Shows the place on screen again, so what just landed in the background - a
+// layout, names - is read on it.
 function refreshPlace(SugarCube) {
   const SC = SugarCube || (typeof window !== 'undefined' ? window.SugarCube : null);
   try {
@@ -406,6 +410,44 @@ function refreshPlace(SugarCube) {
   } catch { /* nothing on screen to refresh */ }
 }
 
+// Lays the world out in the background (world/layout.mjs) and puts it in the
+// state the player is in when it lands: the geography, the names everything
+// that prints a place reads, and the on-screen renames of the originals under
+// it. A player standing where the new geography has no place is moved to its
+// start. Until it lands the world has the original's places, joined; if it
+// cannot be made they are named for the world, as they were before there were
+// layouts, and the layout is asked for again on the next page load.
+function layTheWorld({ setup, model, persona, live, SugarCube, timetable }) {
+  return generateLayout({ model, persona, timetable, faultsIn })
+    .then(({ layout, problems }) => {
+      if (problems.length) console.warn('Obscura layout:', problems);
+      const geo = layout ? buildGeography(layout, { timetable, setup }) : null;
+      const v = live();
+      if (!v) return null;
+      if (!geo) {
+        const named = v[PLACES_KEY] && Object.keys(v[PLACES_KEY]).length;
+        return named ? null : nameThePlaces({ setup, model, persona, live, SugarCube }).then(() => null);
+      }
+      v[GEO_KEY] = geo;
+      v[LAYOUT_KEY] = 'done';
+      const names = geoNames(geo);
+      // the places under no place of the geography keep the names they had
+      v[PLACES_KEY] = { ...(v[PLACES_KEY] || {}), ...names };
+      const r = v[RENAMES_KEY];
+      if (r && typeof r === 'object') { r.exact = r.exact || {}; Object.assign(r.exact, placeRenames(setup, names)); }
+      if (v.location && !geo.places[v.location]) {
+        v.location = geo.start;
+        const node = placesIn(setup).get(geo.start);
+        if (node) v.locationblock = node.map;
+      }
+      refreshPlace(SugarCube);
+      return geo;
+    })
+    .catch((err) => { console.warn('Obscura: the world could not be laid out', err); });
+}
+
+// The original's places, named for the world: for a world that could not be
+// laid out (above), as every world's were before there were layouts.
 function nameThePlaces({ setup, model, persona, live, SugarCube }) {
   return generatePlaceNames({ setup, model, faultsIn, persona, background: true })
     .then((places) => {
@@ -584,6 +626,12 @@ export function installWorldRestore(deps = {}) {
       const grown = replayGrowth(setup, vars && vars[GROWTH_KEY]);
       const plugin = deps.plugin || findPlugin('ai', deps.scope);
       const model = plugin ? sharedModel({ plugin }) : null;
+      // a layout the page went away before (world/layout.mjs), first in the queue
+      if (model && vars && vars[LAYOUT_KEY] === 'pending') {
+        layTheWorld({ setup, model, live: varsOf, SugarCube: SC,
+          persona: buildPersona((varsOf() || {}).obscuraPremise || '', getLexicon(deps)),
+          timetable: !(vars.obscuraWorld && vars.obscuraWorld.systems && vars.obscuraWorld.systems.timetable === false) });
+      }
       // how people talk here: the lines written for this world, from the
       // store, and the world's bank finished if the page went away half-way
       restoreTalk({ store: deps.store || sharedStore(), worldId: vars && vars[WORLD_ID_KEY], model, faultsIn,
@@ -712,9 +760,9 @@ const installedOn = new WeakSet();
 export function installHubHook(deps = {}) {
   try {
     return installHub({
-      // A map's own name is the original's ("Campus"); its title goes through
-      // this world's vocabulary, as the passages' text does.
-      mapName: (key, map) => substituteLexicon(String((map && map.name) || key), compileLexicon(getLexicon(deps))),
+      // An area of the original's places is named for its map ("Campus"); its
+      // name goes through this world's vocabulary, as the passages' text does.
+      areaName: (area) => substituteLexicon(String((area && area.name) || ''), compileLexicon(getLexicon(deps))),
       // The switch is offered only where a painter was installed.
       paint: () => ({ available: typeof window !== 'undefined' && !!window.ObscuraPainter, on: paintEnabled() }),
       togglePaint: () => setPaintEnabled(!paintEnabled()),

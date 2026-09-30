@@ -7,6 +7,8 @@
 // to class by their own courses and a calendar check). Every wrapper reads the
 // rulings from the live state, so loading another world's save behaves as
 // that world.
+import { geoOf } from './geography.mjs';
+
 const ALL_ON = { timetable: true, grades: true, sports: true, divisions: true };
 
 export function systemsOf(V) {
@@ -95,12 +97,12 @@ export function installTimetable(deps = {}) {
     return original.apply(this, args);
   });
 
-  // Timetable on: a class of the player's, on now, at its building or at the
-  // building's door (where the sidebar's shortcut takes them). Attending puts
+  // Timetable on: a class of the player's, on now, at its place or next door
+  // to it - the places its exits lead to in the world's geography, which in
+  // the original's places are the building's door on its map. Attending puts
   // them inside and hands over to the engine's own attend_class; ObscuraClass
   // is tagged `class`, so the time run to the class's end there counts as
   // attended by the engine's own rule - not the missed class every class was.
-  const doorOf = (loc) => (setup.ob_maps && setup.ob_maps[loc] && setup.ob_maps[loc].outside) || null;
   const classNow = () => {
     try { return School.classes_today() ? School.current_class() : null; } catch { return null; }
   };
@@ -111,7 +113,8 @@ export function installTimetable(deps = {}) {
     const c = classNow();
     if (!c || c.type !== 'class') return null;
     const loc = School.class_location(c.course);
-    if (v.location !== loc && v.location !== doorOf(loc)) return null;
+    const place = geoOf(v, setup).places[loc];
+    if (v.location !== loc && !(place && place.exits.includes(v.location))) return null;
     return { course: c.course, minutes: minutesLeft(c, v) || c.length * 60 };
   };
   setup.ob_attend = () => {

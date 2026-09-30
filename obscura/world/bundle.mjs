@@ -30,6 +30,12 @@ export {
   WORLD_ID_KEY, newWorldId, persistWorld, loadWorld, createDurable,
 } from './durable.mjs';
 export { hubHtml, placesIn, startingPlace, exitsOf, installHub, placePictureName } from './hub.mjs';
+export {
+  GEO_KEY, LAYOUT_KEY, STEP_MINUTES, KINDS, KIND_MAX, CLASS_VENUES, fallbackGeo, buildGeography, reachableFrom,
+  shortestPath, travelMinutes, resolvePlace, geoOf, geoNames,
+} from './geography.mjs';
+export { buildLayoutPrompt, parseLayout, layoutProblem, generateLayout, wasCutOff, buildContinuePrompt } from './layout.mjs';
+export { areaLayout, mapsScreenHtml } from './mapdraw.mjs';
 export { placeRoster, generatePlaceNames, installPlaceNames, displayName } from './places.mjs';
 export {
   pruneDanglingEvents, registerAuthoredEvent, authoredEventText, freeSlot,

@@ -21,8 +21,7 @@
 // place goes first, then the places one step away.
 import { buildPersona, faultsIn as defaultFaults, firstSentence } from './persona.mjs';
 import { keyOutBackground, alphaBox, fitInto, hardenAlpha, isBlank, FRAME_W, FRAME_H, SCALE } from './pixels.mjs';
-import { placesIn, exitsOf } from './hub.mjs';
-import { displayName } from './places.mjs';
+import { geoOf } from './geography.mjs';
 import { WORLD_ID_KEY } from './durable.mjs';
 import { parseModelJson } from './safejson.mjs';
 import { quietFor } from './ai-text.mjs';
@@ -386,13 +385,15 @@ export function installPainter(deps = {}) {
     worldId: () => vars()[WORLD_ID_KEY] || 'none',
   });
 
-  const places = () => placesIn(SC.setup);
+  // the places of the geography in play (world/geography.mjs): a place's
+  // "map" is its area
+  const geoNow = () => geoOf(vars(), SC.setup);
   const info = (key) => {
-    const p = places().get(key);
-    return p ? { key, node: p, map: p.map, name: displayName(vars(), key, p.name || key) } : null;
+    const p = geoNow().places[key];
+    return p ? { key, map: p.area, name: p.name } : null;
   };
-  const siblings = (place) => [...places().values()].filter(p => p.map === place.map)
-    .map(p => ({ key: p.key, name: displayName(vars(), p.key, p.name || p.key) }));
+  const siblings = (place) => Object.entries(geoNow().places).filter(([, p]) => p.area === place.map)
+    .map(([k, p]) => ({ key: k, name: p.name }));
   const keyOf = (place) => pictureKey(vars()[WORLD_ID_KEY], place.key, place.name);
   const jobFor = (place, priority) => ({
     key: keyOf(place),
@@ -442,29 +443,29 @@ export function installPainter(deps = {}) {
       painter.request(jobFor(here, 0));
       if (painter.working(k)) mark(here.key, true);
     });
-    exitsOf(here.node, places()).slice(0, deps.prefetch ?? 3).forEach((e, i) => {
+    geoNow().places[here.key].exits.slice(0, deps.prefetch ?? 3).forEach((e, i) => {
       const p = info(e);
       if (p) painter.lookup(keyOf(p)).then((u) => { if (!u) painter.request(jobFor(p, i + 1)); });
     });
     // this map, after the places around the player
     painter.lookup(mapKeyOf(here.map)).then((u) => { if (!u) painter.request(mapJobFor(here.map, 20)); });
   };
-  // Maps: one per map block, painted last, shown when the Maps dialog opens.
-  const blocks = () => Object.entries((SC.setup && SC.setup.ob_maps) || {})
-    .filter(([, m]) => m && m.nodes && Object.keys(m.nodes).length).map(([k]) => k);
-  const namesIn = (block) => [...places().values()].filter(p => p.map === block)
-    .map(p => displayName(vars(), p.key, p.name || p.key));
-  const mapKeyOf = (block) => mapKey(vars()[WORLD_ID_KEY], block, namesIn(block));
-  const mapJobFor = (block, priority) => ({
-    key: mapKeyOf(block),
+  // Maps: one per area of the geography, painted last, shown when the Maps
+  // dialog opens. An area's own look leads, then its places'.
+  const blocks = () => geoNow().areas.map((a) => a.id);
+  const membersOf = (areaId) => Object.entries(geoNow().places).filter(([, p]) => p.area === areaId)
+    .map(([k, p]) => ({ key: k, name: p.name }));
+  const mapKeyOf = (areaId) => mapKey(vars()[WORLD_ID_KEY], areaId, membersOf(areaId).map((p) => p.name));
+  const mapJobFor = (areaId, priority) => ({
+    key: mapKeyOf(areaId),
     priority,
     frame: MAP_FRAME,
     prompt: async () => {
-      const members = [...places().values()].filter(p => p.map === block)
-        .map(p => ({ key: p.key, name: displayName(vars(), p.key, p.name || p.key) }));
-      const looks = [];
-      for (const p of members.slice(0, 4)) looks.push(await looks4(p, members));
-      return mapPrompt({ looks, premise: vars().obscuraPremise });
+      const area = geoNow().areas.find((a) => a.id === areaId) || {};
+      const members = membersOf(areaId);
+      const seen = area.look ? [area.look] : [];
+      for (const p of members.slice(0, 4 - seen.length)) seen.push(await looks4(p, members));
+      return mapPrompt({ looks: seen, premise: vars().obscuraPremise });
     },
   });
   const looks4 = (place, members) => looks.lookFor(place, members);

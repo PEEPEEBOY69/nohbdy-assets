@@ -20,45 +20,18 @@
 // there cannot be a passage per location - a single hub sets V.location itself
 // and reads everything else from the world.
 
-import { displayName } from './places.mjs';
 import { writingLine, currentWriter } from './writer.mjs';
 import { recallHere } from './recall.mjs';
 import { substituteWith } from './lexicon.mjs';
+import {
+  placesIn, startingPlace, geoOf, resolvePlace, shortestPath, travelMinutes, STEP_MINUTES,
+} from './geography.mjs';
+import { mapsScreenHtml } from './mapdraw.mjs';
+
+// Read by the modules that always imported them from here.
+export { placesIn, startingPlace };
 
 export const MAX_PEOPLE_SHOWN = 8;
-
-// The world's places, as a flat map of node name -> node, across every map
-// that has nodes. Generated worlds name their own maps and nodes, so nothing
-// here may assume a fixed name.
-export function placesIn(setup) {
-  const out = new Map();
-  const maps = setup && setup.ob_maps;
-  if (!maps || typeof maps !== 'object') return out;
-  for (const [mapName, map] of Object.entries(maps)) {
-    const nodes = map && map.nodes;
-    if (!nodes || typeof nodes !== 'object') continue;
-    for (const [key, node] of Object.entries(nodes)) {
-      if (!node || typeof node !== 'object') continue;
-      if (!out.has(key)) out.set(key, { ...node, key, map: mapName });
-    }
-  }
-  return out;
-}
-
-// Where a new game starts. Deterministic: the first node of the map with the
-// most nodes, so the player begins somewhere central rather than in whichever
-// one-room location happened to sort first.
-export function startingPlace(setup) {
-  const maps = (setup && setup.ob_maps) || {};
-  let best = null;
-  for (const [mapName, map] of Object.entries(maps)) {
-    const nodes = (map && map.nodes) || {};
-    const keys = Object.keys(nodes).filter(k => nodes[k] && typeof nodes[k] === 'object');
-    if (!keys.length) continue;
-    if (!best || keys.length > best.count) best = { key: keys[0], map: mapName, count: keys.length };
-  }
-  return best ? best.key : null;
-}
 
 // Only exits that actually lead somewhere. A generated world's `exits` are
 // names, and a name that no node answers to is a link into nothing - the exact
@@ -119,23 +92,25 @@ export function placePictureName(node, V = {}, setup = null) {
 // tested without an engine. Returns SugarCube markup, not plain HTML, because
 // the links have to be real passage links the engine will wire up.
 export function hubHtml(setup, V, opts = {}) {
-  const places = placesIn(setup);
-  const here = places.get(V && V.location) || null;
+  // where the player is, and where they can walk: the geography in play
+  // (world/geography.mjs)
+  const geo = opts.geo || geoOf(V, setup);
+  const here = (geo && V && geo.places[V.location]) || null;
+  // the original's node under the place: its picture until this world's is painted
+  const node = placesIn(setup).get(V && V.location) || null;
   const lines = [];
 
-  const name = here
-    ? displayName(V, here.key, here.name || here.key)
-    : (opts.unknownName || 'somewhere you do not recognise');
+  const name = here ? here.name : (opts.unknownName || 'somewhere you do not recognise');
 
   // The place's picture, big enough to see on a phone, where the sidebar that
   // normally shows it is hidden. It starts as the shipped room; the painter
   // (world/painter.mjs) swaps in the one painted for this world, matching on
   // data-ob-place.
-  if (here && opts.pictureBase) {
-    const file = placePictureName(here, V, setup);
+  if (node && opts.pictureBase) {
+    const file = placePictureName(node, V, setup);
     if (file) {
       lines.push(`<div class="ob-hub-picture" style="margin:0 0 0.8em">`
-        + `<img data-ob-place="${esc(here.key)}" src="${esc(`${opts.pictureBase}${file}.png`)}" alt=""`
+        + `<img data-ob-place="${esc(V.location)}" src="${esc(`${opts.pictureBase}${file}.png`)}" alt=""`
         + ` style="width:256px;max-width:100%;height:auto;image-rendering:pixelated"></div>`);
       // Only offered where there is a painter to switch. A plain control, not
       // a passage link: the hub numbers its links as hotkeys, and the switch
@@ -159,9 +134,13 @@ export function hubHtml(setup, V, opts = {}) {
   const clock = clockOf(setup, V);
   if (clock) lines.push(`<div class="ob-hub-clock">${esc(clock)}</div>`);
 
-  // the map's own line ("Your Dorm"), in this world's words: the hub is built
-  // here, so the passage hook never sees it
-  if (here && here.features) lines.push(`<div class="ob-hub-feature">${esc(substituteWith(here.features, V && V.obscuraLexicon))}</div>`);
+  const area = here && geo.areas.find((a) => a.id === here.area);
+  if (area && area.name) lines.push(`<div class="ob-hub-area">${esc(opts.areaName ? opts.areaName(area) : area.name)}</div>`);
+  // a fallback place keeps its street's own note ("Your Dorm"), in this
+  // world's words: the hub is built here, so the passage hook never sees it
+  if (geo && geo.source === 'fallback' && node && node.features) {
+    lines.push(`<div class="ob-hub-feature">${esc(substituteWith(node.features, V && V.obscuraLexicon))}</div>`);
+  }
 
   // Who is here: the engine's own $peopleatlocation, which its PassageReady
   // sets on every location passage - so every name shown is one its "Talk to"
@@ -182,15 +161,12 @@ export function hubHtml(setup, V, opts = {}) {
     }
   }
 
-  const exits = here ? exitsOf(here, places) : [];
+  const exits = here ? here.exits.filter((e) => geo.places[e] && e !== V.location) : [];
   if (exits.length) {
     lines.push('<div class="ob-hub-exits">');
-    for (const e of exits) {
-      const label = displayName(V, e, places.get(e).name || e);
-      // The target is always the hub; the destination travels in a variable,
-      // because a generated place has no passage of its own.
-      lines.push(`<<link "${esc(label)}">><<run setup.ob_obscura_go("${esc(e)}")>><</link>>`);
-    }
+    // The target is always the hub; the destination travels in a variable,
+    // because a place has no passage of its own.
+    for (const e of exits) lines.push(`<<link "${esc(geo.places[e].name)}">><<run setup.ob_obscura_go("${esc(e)}")>><</link>>`);
     lines.push('</div>');
   } else {
     lines.push('<div class="ob-hub-exits ob-hub-noexit">Nowhere to go from here yet.</div>');
@@ -205,40 +181,19 @@ export function hubHtml(setup, V, opts = {}) {
   lines.push('<<link "Wait a while">><<run setup.ob_obscura_wait()>><</link>>');
   lines.push('</div>');
 
-  return lines.join('\n');
+  // no newlines: printed with <<=, each one would be a line break on screen;
+  // the stylesheet lays the hub out
+  return lines.join('');
 }
 
-// The Maps screen, for a generated world. The chassis's screen showed each
-// map's picture under the ORIGINAL map's name ("Campus", "Town") and nothing
-// else - in a world with no campus. This shows each map with the places in
-// it, under the names they have in this world, and where the player is. The
-// picture starts as the shipped map; the painter swaps in one painted for this
-// world, matching on data-ob-map.
+// The Maps screen (world/mapdraw.mjs), drawn from the geography in play. A
+// fallback area is one of the original's maps and shows its shipped picture
+// until the painter paints this world's; a world's own area has no shipped
+// picture to stand in, and shows the painted one when there is one.
 export function mapsHtml(setup, V = {}, opts = {}) {
   const maps = (setup && setup.ob_maps) || {};
-  const blocks = Object.entries(maps)
-    .filter(([, m]) => m && m.nodes && typeof m.nodes === 'object' && Object.keys(m.nodes).length);
-  if (!blocks.length) return '<div class="ob-maps-empty">This world has no map yet.</div>';
-  const here = V && V.location;
-  const out = [];
-  for (const [key, map] of blocks) {
-    const title = typeof opts.mapName === 'function' ? opts.mapName(key, map) : (map.name || key);
-    out.push('<div class="ob-map" style="margin:0 0 1.4em">');
-    out.push(`<div class="ob-map-title" style="margin:0 0 0.4em"><b>${esc(title)}</b></div>`);
-    const file = map.bigimg || map.img;
-    if (opts.pictureBase && file) {
-      out.push(`<img data-ob-map="${esc(key)}" src="${esc(`${opts.pictureBase}${file}.png`)}" alt=""`
-        + ' style="width:100%;height:auto;image-rendering:pixelated">');
-    }
-    out.push('<div class="ob-map-places" style="columns:12em;column-gap:1.5em;margin-top:0.5em">');
-    for (const [k, node] of Object.entries(map.nodes)) {
-      if (!node || typeof node !== 'object') continue;
-      const name = esc(displayName(V, k, node.name || k));
-      out.push(k === here ? `<div><b>${name}</b> - you are here</div>` : `<div>${name}</div>`);
-    }
-    out.push('</div></div>');
-  }
-  return out.join('');
+  const picture = opts.picture || ((id) => { const m = maps[id]; return (m && (m.bigimg || m.img)) || null; });
+  return mapsScreenHtml(opts.geo || geoOf(V, setup), V, { ...opts, picture });
 }
 
 // Random events in the main loop. The original's location passages each asked
@@ -279,6 +234,7 @@ export function installHub(deps = {}) {
   if (!setup || !SC) return false;
 
   const V = () => (deps.state || SC.State).variables;
+  const geoNow = () => geoOf(V(), setup);
 
   // Pictures come from the same place the build pointed every res/img/ path.
   const pictureBase = () => deps.pictureBase
@@ -289,12 +245,13 @@ export function installHub(deps = {}) {
     paint: typeof deps.paint === 'function' ? deps.paint() : null,
     // the names are people to talk to once world/talk.mjs is installed
     talk: typeof setup.ob_talk_open === 'function',
+    areaName: deps.areaName,
   });
   setup.ob_obscura_paint_toggle = () => {
     if (typeof deps.togglePaint === 'function') deps.togglePaint();
     try { SC.Engine.show(); } catch { /* nothing on screen */ }
   };
-  setup.ob_obscura_maps = () => mapsHtml(setup, V(), { pictureBase: pictureBase(), mapName: deps.mapName });
+  setup.ob_obscura_maps = () => mapsHtml(setup, V(), { pictureBase: pictureBase(), areaName: deps.areaName });
   setup.ob_obscura_event = () => rollHubEvent(setup, V(),
     () => (SC.State && typeof SC.State.random === 'function' ? SC.State.random() : Math.random()));
 
@@ -308,14 +265,17 @@ export function installHub(deps = {}) {
     if (place) V().locationblock = place.map;
   };
 
-  // `minutes` overrides the usual step: the sidebar's class shortcut has
-  // already advanced the clock by the real path length before it calls this.
+  // `to` is a place of the geography; a key that is no place is read as the
+  // engine means it (a building's block is its first room). `minutes`
+  // overrides the step: the sidebar's class shortcut has already moved the
+  // clock before it calls this.
   setup.ob_obscura_go = (to, minutes) => {
-    const places = placesIn(setup);
-    if (!places.has(to)) return false;
-    V().location = to;
-    setBlock(to);
-    const step = Number.isFinite(minutes) ? minutes : (deps.travelMinutes ?? 15);
+    const geo = geoNow();
+    const key = typeof to === 'string' && geo.places[to] ? to : resolvePlace(geo, setup, to);
+    if (!key) return false;
+    V().location = key;
+    setBlock(key);
+    const step = Number.isFinite(minutes) ? minutes : (deps.travelMinutes ?? STEP_MINUTES);
     try {
       if (step > 0 && setup.ob_time && typeof setup.ob_time.advance_time === 'function') {
         setup.ob_time.advance_time(step);
@@ -323,6 +283,25 @@ export function installHub(deps = {}) {
     } catch { /* time is decoration here, not a precondition for moving */ }
     SC.Engine.play('ObscuraHub');
     return true;
+  };
+
+  // The sidebar's class "Go there" (build.mjs rewrites it to this): the engine
+  // names the class building's door on the original map, and in a world's own
+  // layout another street may stand on that key, so the door is read as the
+  // engine means it - the class's place.
+  setup.ob_obscura_class_go = (door, minutes) => {
+    const key = resolvePlace(geoNow(), setup, door);
+    return key ? setup.ob_obscura_go(key, minutes) : false;
+  };
+
+  // The Maps screen's click: the shortest way there, at five minutes a step.
+  setup.ob_obscura_travel = (to) => {
+    const geo = geoNow();
+    const key = typeof to === 'string' && geo.places[to] ? to : resolvePlace(geo, setup, to);
+    if (!key) return false;
+    const path = shortestPath(geo, V().location, key);
+    try { if (SC.Dialog && typeof SC.Dialog.close === 'function') SC.Dialog.close(); } catch { /* no dialog open */ }
+    return setup.ob_obscura_go(key, path ? travelMinutes(path) : STEP_MINUTES);
   };
 
   setup.ob_obscura_wait = () => {
@@ -337,9 +316,9 @@ export function installHub(deps = {}) {
 
   setup.ob_obscura_start = () => {
     const v = V();
-    if (!v.location || !placesIn(setup).has(v.location)) {
-      const start = startingPlace(setup);
-      if (start) v.location = start;
+    const geo = geoNow();
+    if (!v.location || !geo.places[v.location]) {
+      if (geo.start) v.location = geo.start;
     }
     if (v.location) setBlock(v.location);
     return v.location || null;

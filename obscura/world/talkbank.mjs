@@ -19,7 +19,11 @@ export const TIERS = ['stranger', 'acquaintance', 'friend', 'close', 'romantic',
 // Only these can go badly; everything else always lands.
 export const TWO_WAY = ['flirt', 'tease'];
 export const PAIRS_PER_CELL = 3;
-export const BANK_CELLS_PER_CALL = 12;
+// Eight moments a call: 24 lines of about 110 characters, inside the ~2,900
+// characters the platform ends a reply at (the ai-text-plugin sends no length,
+// world/layout.mjs). Twelve came back cut off after the ninth or so, and every
+// batch needed a second call for the rest.
+export const BANK_CELLS_PER_CALL = 8;
 export const MAX_HALF = 220;
 export const TALK_TAG = 'obscura talk';
 export const ANYONE = 'talk anyone';

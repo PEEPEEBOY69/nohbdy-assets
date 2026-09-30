@@ -36,14 +36,17 @@ import {
   installEvents, restoreAuthoredEvents, pruneDanglingEvents, STATE_KEY as EVENTS_KEY,
 } from './events.mjs';
 import { generatePlaceNames, installPlaceNames, STATE_KEY as PLACES_KEY } from './places.mjs';
-import { GEO_KEY, LAYOUT_KEY, buildGeography, geoNames, placesIn } from './geography.mjs';
+import { GEO_KEY, LAYOUT_KEY, buildGeography, geoNames, placesIn, geoOf } from './geography.mjs';
 import { generateLayout } from './layout.mjs';
+import { GOODS_KEY, generateGoods } from './goods.mjs';
 import { buildPersona, faultsIn } from './persona.mjs';
 import { installPainter, paintEnabled, setPaintEnabled } from './painter.mjs';
 import { installSidebar } from './sidebar.mjs';
 import { installPhone } from './phone.mjs';
 import { writeTheWorldBank, restoreTalk, startTalkWorld, installTalk } from './talk.mjs';
 import { installPortraits } from './portraits.mjs';
+import { installNeeds } from './needs.mjs';
+import { installShop } from './shop.mjs';
 
 // Harvests the chassis's own tables out of the running engine. The payload
 // already ships them, so generation downloads nothing.
@@ -418,6 +421,12 @@ function refreshPlace(SugarCube) {
 // cannot be made they are named for the world, as they were before there were
 // layouts, and the layout is asked for again on the next page load.
 function layTheWorld({ setup, model, persona, live, SugarCube, timetable }) {
+  return layOut({ setup, model, persona, live, SugarCube, timetable })
+    // what its kitchens serve and its shops sell, for the places it has now
+    .then(() => nameTheGoods({ setup, model, persona, live }));
+}
+
+function layOut({ setup, model, persona, live, SugarCube, timetable }) {
   return generateLayout({ model, persona, timetable, faultsIn })
     .then(({ layout, problems }) => {
       if (problems.length) console.warn('Obscura layout:', problems);
@@ -444,6 +453,37 @@ function layTheWorld({ setup, model, persona, live, SugarCube, timetable }) {
       return geo;
     })
     .catch((err) => { console.warn('Obscura: the world could not be laid out', err); });
+}
+
+// A mark of the places a world's goods were named for: its kitchens and shops,
+// by key and name. New places, new goods.
+export function goodsSignature(geo) {
+  const s = Object.entries((geo && geo.places) || {})
+    .filter(([, p]) => p && (p.kind === 'food' || p.kind === 'shop'))
+    .map(([k, p]) => `${k}=${p.name}`).join('|');
+  let h = 0;
+  for (let i = 0; i < s.length; i += 1) h = ((h * 31) + s.charCodeAt(i)) | 0;
+  return `${(geo && geo.source) || 'none'}:${h}`;
+}
+
+// What the world's kitchens serve and its shops sell (world/goods.mjs), named
+// in the background for the places in play and written into the state the
+// player is in when it lands - unless the places changed meanwhile, when they
+// are named again for the new ones.
+function nameTheGoods({ setup, model, persona, live }) {
+  const v0 = live();
+  if (!v0) return Promise.resolve(null);
+  const geo = geoOf(v0, setup);
+  const sig = goodsSignature(geo);
+  return generateGoods({ model, persona, geo, faultsIn })
+    .then(({ goods, problems }) => {
+      if (problems.length) console.warn('Obscura goods:', problems);
+      const v = live();
+      if (!v || !goods || goodsSignature(geoOf(v, setup)) !== sig) return null;
+      v[GOODS_KEY] = { ...goods, for: sig };
+      return goods;
+    })
+    .catch((err) => { console.warn('Obscura: the world\'s goods could not be named', err); });
 }
 
 // The original's places, named for the world: for a world that could not be
@@ -626,11 +666,16 @@ export function installWorldRestore(deps = {}) {
       const grown = replayGrowth(setup, vars && vars[GROWTH_KEY]);
       const plugin = deps.plugin || findPlugin('ai', deps.scope);
       const model = plugin ? sharedModel({ plugin }) : null;
-      // a layout the page went away before (world/layout.mjs), first in the queue
+      // a layout the page went away before (world/layout.mjs), first in the
+      // queue, and the goods after it; a world laid out with no goods for its
+      // places (named before v37, or before its places changed) gets them now
       if (model && vars && vars[LAYOUT_KEY] === 'pending') {
         layTheWorld({ setup, model, live: varsOf, SugarCube: SC,
           persona: buildPersona((varsOf() || {}).obscuraPremise || '', getLexicon(deps)),
           timetable: !(vars.obscuraWorld && vars.obscuraWorld.systems && vars.obscuraWorld.systems.timetable === false) });
+      } else if (model && vars && (!vars[GOODS_KEY] || vars[GOODS_KEY].for !== goodsSignature(geoOf(vars, setup)))) {
+        nameTheGoods({ setup, model, live: varsOf,
+          persona: buildPersona((varsOf() || {}).obscuraPremise || '', getLexicon(deps)) });
       }
       // how people talk here: the lines written for this world, from the
       // store, and the world's bank finished if the page went away half-way
@@ -772,6 +817,18 @@ export function installHubHook(deps = {}) {
       ...deps,
     });
   } catch { return false; }
+}
+
+// What an empty need does, and no move into a passage that does not ship
+// (world/needs.mjs). After the engine's own scripts have set their override.
+export function installNeedsHook(deps = {}) {
+  try { return installNeeds(deps); } catch { return false; }
+}
+
+// Menus, wares and the home's stores (world/shop.mjs), and the Inventory's
+// snack.
+export function installShopHook(deps = {}) {
+  try { return installShop(deps); } catch { return false; }
 }
 
 // The phone's screens (world/phone.mjs). None of the original's shipped.

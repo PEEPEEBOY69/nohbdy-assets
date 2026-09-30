@@ -27,6 +27,7 @@ import {
   placesIn, startingPlace, geoOf, resolvePlace, shortestPath, travelMinutes, STEP_MINUTES,
 } from './geography.mjs';
 import { mapsScreenHtml } from './mapdraw.mjs';
+import { ACTIONS, actionsFor, doAction, priceText, SCREEN_KEY, SCREEN_PASSAGE } from './actions.mjs';
 
 // Read by the modules that always imported them from here.
 export { placesIn, startingPlace };
@@ -133,6 +134,8 @@ export function hubHtml(setup, V, opts = {}) {
 
   const clock = clockOf(setup, V);
   if (clock) lines.push(`<div class="ob-hub-clock">${esc(clock)}</div>`);
+  // what the player just did here (world/actions.mjs), until the next move
+  if (V && V.obscuraDid) lines.push(`<div class="ob-hub-did">${esc(V.obscuraDid)}</div>`);
 
   const area = here && geo.areas.find((a) => a.id === here.area);
   if (area && area.name) lines.push(`<div class="ob-hub-area">${esc(opts.areaName ? opts.areaName(area) : area.name)}</div>`);
@@ -170,6 +173,18 @@ export function hubHtml(setup, V, opts = {}) {
     lines.push('</div>');
   } else {
     lines.push('<div class="ob-hub-exits ob-hub-noexit">Nowhere to go from here yet.</div>');
+  }
+
+  // what this place is for (world/actions.mjs), a price where one is due
+  const doing = here ? actionsFor(here) : [];
+  if (doing.length) {
+    lines.push('<div class="ob-hub-do">');
+    for (const id of doing) {
+      const a = ACTIONS[id];
+      const label = a.price ? `${a.label} (${priceText(a.price)})` : a.label;
+      lines.push(`<<link "${esc(label)}">><<run setup.ob_obscura_act("${id}")>><</link>>`);
+    }
+    lines.push('</div>');
   }
 
   lines.push('<div class="ob-hub-actions">');
@@ -274,6 +289,11 @@ export function installHub(deps = {}) {
     const key = typeof to === 'string' && geo.places[to] ? to : resolvePlace(geo, setup, to);
     if (!key) return false;
     V().location = key;
+    delete V().obscuraDid;
+    // The engine's navigation override judges the needs only when a move goes
+    // to another passage, or while $waiting is set; every move here is the hub
+    // to the hub.
+    V().waiting = true;
     setBlock(key);
     const step = Number.isFinite(minutes) ? minutes : (deps.travelMinutes ?? STEP_MINUTES);
     try {
@@ -304,7 +324,27 @@ export function installHub(deps = {}) {
     return setup.ob_obscura_go(key, path ? travelMinutes(path) : STEP_MINUTES);
   };
 
+  // What this place is for (world/actions.mjs): done through the engine, a
+  // line for the hub; a menu, wares or the home's stores open their screen.
+  setup.ob_obscura_act = (id) => {
+    const v = V();
+    const place = geoNow().places[v.location];
+    if (!place || !actionsFor(place).includes(id)) return false;
+    const done = doAction(setup, v, id);
+    if (done.screen) {
+      v[SCREEN_KEY] = { place: v.location, screen: done.screen };
+      SC.Engine.play(SCREEN_PASSAGE);
+      return true;
+    }
+    v.obscuraDid = done.line;
+    v.waiting = true;
+    SC.Engine.play('ObscuraHub');
+    return true;
+  };
+
   setup.ob_obscura_wait = () => {
+    delete V().obscuraDid;
+    V().waiting = true;
     try {
       if (setup.ob_time && typeof setup.ob_time.advance_time === 'function') {
         setup.ob_time.advance_time(deps.waitMinutes ?? 60);

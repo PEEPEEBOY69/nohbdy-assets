@@ -47,7 +47,7 @@ const PLACE_LINE = /^\s*PLACE\s+(\d+)\s*[.):-]?\s*(.*)$/i;
 const NOT_A_NAME = /[[\]{}<>%\\|]/;
 
 export function cleanPlaceName(raw, faultsIn = defaultFaults) {
-  const s = String(raw == null ? '' : raw).replace(/\s+/g, ' ').trim().replace(/^["'“‘]+|["'”’]+$/g, '').trim();
+  const s = String(raw == null ? '' : raw).replace(/\s+/g, ' ').trim().replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').trim();
   if (!s || s.length > MAX_NAME || NOT_A_NAME.test(s) || faultsIn(s, 'name').length) return null;
   return s;
 }
@@ -160,6 +160,26 @@ export function buildContinuePrompt(persona, reply, { timetable = false } = {}) 
   ].join('\n');
 }
 
+// A layout the model gave no home (a whole port city, twice, 2026-09-30) is
+// not thrown away for it: the newcomer lives in its first lodging, else in a
+// room of their own inside its first building, else in one opening onto its
+// first street. A layout with a home is left as it came.
+export const OWN_ROOM = 'Your room';
+export function settleHome(layout) {
+  const places = (layout && layout.places) || [];
+  if (!places.length || places.some((p) => p.kind === 'home')) return layout;
+  const lodging = places.find((p) => p.kind === 'lodging');
+  if (lodging) return { ...layout, places: places.map((p) => (p === lodging ? { ...p, kind: 'home' } : p)) };
+  const building = places.find((p) => !p.outdoor && p.opensOnto != null);
+  const street = places.find((p) => p.outdoor);
+  if (!building && !street) return layout;
+  const n = Math.max(...places.map((p) => p.n)) + 1;
+  const room = building
+    ? { n, name: OWN_ROOM, kind: 'home', area: building.area, outdoor: false, inside: building.n, opensOnto: null }
+    : { n, name: OWN_ROOM, kind: 'home', area: street.area, outdoor: false, inside: null, opensOnto: street.n };
+  return { ...layout, places: [...places, room] };
+}
+
 export function layoutProblem(layout) {
   if (!layout.areas.length) return 'no areas';
   if (layout.places.length < LAYOUT_MIN_PLACES) return `only ${layout.places.length} places`;
@@ -195,7 +215,7 @@ export async function generateLayout({ model, persona, timetable = false, faults
       try { reply = `${reply}\n${await ask(buildContinuePrompt(text(), reply, { timetable }))}`; }
       catch (err) { problems.push(`layout, going on: ${why(err)}`); }
     }
-    const layout = parseLayout(reply, faultsIn);
+    const layout = settleHome(parseLayout(reply, faultsIn));
     const problem = layoutProblem(layout);
     if (!problem) return { layout, problems, calls };
     problems.push(problem);

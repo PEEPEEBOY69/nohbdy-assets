@@ -2,7 +2,7 @@
 //
 // localStorage is not an option. Lumen died on the ~5 MB ceiling once, at
 // 1,572,707 bytes for a single character's images. SugarCube already carries
-// IndexedDB - 70 references, and COT's boot logs "checking browser version for
+// IndexedDB - 70 references, and the original's boot logs "checking browser version for
 // idb" - so this adopts a capability rather than building one.
 //
 // NPCs are stored ONE PER KEY. Storing the cast as a single blob would undo

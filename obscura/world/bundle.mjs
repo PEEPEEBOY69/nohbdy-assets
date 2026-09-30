@@ -13,7 +13,7 @@ export {
   loadAssetManifest, installWorldRestore, startLivingWorld, markWorldApplied, worldMissing,
   installPainterHook, installSidebarHook, installPhoneHook, startWriter, installGuardHook, installWriterControls,
   installCastHook, getRenames, installTalkHook, installPortraitsHook, installNeedsHook, installShopHook, goodsSignature,
-  installWorkHook, installRentHook, installTextingHook, installDatesHook,
+  installWorkHook, installRentHook, installTextingHook, installDatesHook, installEncounterHook,
 } from './flow.mjs';
 export { readImport, characterFromCard, loreFromJson, loreFromText, cardTextFromPng, worldBriefFrom } from './imports.mjs';
 export { castSets, buildCastPrompt, parseCast, castName, addCastMember, mapPending, joinPending, settleIn, CAST_KEY, CAST_PENDING_KEY } from './cast.mjs';
@@ -56,6 +56,8 @@ export { DATE_FLOW, DATE_TYPES, applyDateChoice, eligibleDateMoments } from './d
 export { buildDatePrompt, parseDateWords, generateDateWords, personBody, dateLogStatus } from './datebank.mjs';
 export { eveningHtml, dateLinks, EVENING_KEY } from './datescreen.mjs';
 export { OFFERS, offersFor, takeOffer } from './relations.mjs';
+export { actWords, positionWords, narrateActs, narratePositions } from './narration.mjs';
+export { actCells, buildNarrationPrompt, mendLine, parseNarration, narrationStatus } from './narrationbank.mjs';
 export { placeRoster, generatePlaceNames, installPlaceNames, displayName } from './places.mjs';
 export {
   pruneDanglingEvents, registerAuthoredEvent, authoredEventText, freeSlot,

@@ -2,7 +2,7 @@
 //
 // `setup.ob_events.db` holds 1,769 event records, each naming the passage to
 // play. The chassis extraction deliberately keeps only STRUCTURAL passages, so
-// COT's authored scenes are not shipped - and 1,741 of those records point at
+// the original's authored scenes are not shipped - and 1,741 of those records point at
 // passages that do not exist (the count logged at boot, 2026-09-24; it was
 // 1,630 when this was first written). Every one is a crash waiting for the
 // moment the engine picks it.

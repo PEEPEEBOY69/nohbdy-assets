@@ -21903,7 +21903,7 @@ var Story = (() => { // eslint-disable-line no-unused-vars, no-var
 			/*
 				Set the story title.
 
-				FIXME: Maybe `$storydata.attr('name')` should be used instead of `'Course of Temptation'`?
+				FIXME: Maybe `$storydata.attr('name')` should be used instead of `'Obscura'`?
 			*/
 			// _storySetTitle($storydata.attr('name'));
 			_storySetTitle('Obscura');

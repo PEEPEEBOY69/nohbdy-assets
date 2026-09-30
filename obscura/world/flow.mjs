@@ -52,6 +52,8 @@ import { installDateScreen } from './datescreen.mjs';
 import { installRelations } from './relations.mjs';
 import { dateContext } from './datemoments.mjs';
 import { useDateLog, emptyDateLog, restoreDateWords, writeDateWords, personBody } from './datebank.mjs';
+import { installNarration } from './narration.mjs';
+import { writeTheNarration, restoreNarration, useNarrationLog, emptyNarrationLog, narrationWords } from './narrationbank.mjs';
 import { ensureRent, installRent } from './rent.mjs';
 import { installWork, restoreMoments, writeLineMoments, useMomentLog } from './workscreen.mjs';
 import { jobsOf } from './work.mjs';
@@ -291,9 +293,10 @@ export async function startBuild(premise, progressId, done, deps = {}) {
     }
     // no work's moments written yet (world/workscreen.mjs)
     useMomentLog(worldId, emptyMomentsLog());
-    // a new world's texts and its people's date words: none yet
+    // a new world's texts, its people's date words, its narration: none yet
     useTextLog(worldId, emptyTextLog());
     useDateLog(worldId, emptyDateLog());
+    useNarrationLog(worldId, emptyNarrationLog());
     markWorldApplied(worldId);
     stepTo('save');
     const store = deps.store || sharedStore();
@@ -715,6 +718,11 @@ export function installWorldRestore(deps = {}) {
       restoreDateWords({ store: deps.store || sharedStore(), worldId: vars && vars[WORLD_ID_KEY] })
         .then(() => { for (const d of datesOf(vars || {}).list) if (d.state === 'set') writeWordsFor(setup, vars, deps, d.with); })
         .catch((err) => console.warn('Obscura: the date words could not be restored', err));
+      // the world's narration of every act (world/narrationbank.mjs), finished
+      // if the player has ever set a date or a night
+      restoreNarration({ store: deps.store || sharedStore(), worldId: vars && vars[WORLD_ID_KEY], faultsIn })
+        .then(() => { if (datesOf(vars || {}).list.length) writeNarrationFor(setup, vars, deps); })
+        .catch((err) => console.warn('Obscura: the narration could not be restored', err));
       restoreMoments({ store: deps.store || sharedStore(), worldId: vars && vars[WORLD_ID_KEY], model, faultsIn,
         jobs: Object.entries(jobsOf(vars)).map(([key, job]) => ({ line: job.line, placeName: (geoOf(vars, setup).places[key] || { name: key }).name })),
         who: bodyOf(setup, vars),
@@ -955,6 +963,18 @@ function writeWordsFor(setup, vars, deps, name) {
     .catch((err) => console.warn('Obscura: a date\'s words could not be written', err));
 }
 
+// The world's own narration of every act of the engine's encounter
+// (world/narrationbank.mjs), in the background; a no-op once written.
+function writeNarrationFor(setup, vars, deps) {
+  if (!setup || !vars || !setup.ob_sexacts) return;
+  const plugin = deps.plugin || findPlugin('ai', deps.scope);
+  const model = plugin ? sharedModel({ plugin }) : null;
+  if (!model) return;
+  writeTheNarration({ model, store: deps.store || sharedStore(), worldId: vars[WORLD_ID_KEY], acts: setup.ob_sexacts, faultsIn,
+    persona: () => buildPersona(vars.obscuraPremise || '', getLexicon(deps)) })
+    .catch((err) => console.warn('Obscura: the narration could not be written', err));
+}
+
 // Dates (world/dates.mjs), the date on screen (world/datescreen.mjs) and what
 // it leads to (world/relations.mjs); a person's words written the moment a
 // date or a night is set with them.
@@ -969,7 +989,7 @@ export function installDatesHook(deps = {}) {
     const set = setup.ob_date_set;
     const withWords = (name, kind) => {
       const d = set(name, kind);
-      if (d) writeWordsFor(setup, vars(), deps, name);
+      if (d) { writeWordsFor(setup, vars(), deps, name); writeNarrationFor(setup, vars(), deps); }
       return d;
     };
     withWords.__obscuraWords = true;
@@ -977,12 +997,25 @@ export function installDatesHook(deps = {}) {
     const begin = setup.ob_hookup_begin;
     setup.ob_hookup_begin = (name) => {
       const r = begin(name);
-      if (r) writeWordsFor(setup, vars(), deps, name);
+      if (r) { writeWordsFor(setup, vars(), deps, name); writeNarrationFor(setup, vars(), deps); }
       return r;
     };
     return ok;
   } catch (err) {
     console.warn('Obscura: dates could not start', err);
+    return false;
+  }
+}
+
+// The engine's encounter (world/narration.mjs): what its round did, told in
+// Obscura's words by Obscura's EncounterActs and EncounterPositions, which
+// then run the engine's own logic silently.
+export function installEncounterHook(deps = {}) {
+  try {
+    const SC = deps.SugarCube || (typeof window !== 'undefined' ? window.SugarCube : null);
+    return installNarration({ ...deps, SugarCube: SC, words: (name, dir) => narrationWords(name, dir) });
+  } catch (err) {
+    console.warn('Obscura: the encounter could not start', err);
     return false;
   }
 }

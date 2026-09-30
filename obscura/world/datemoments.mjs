@@ -119,6 +119,8 @@ export const DATE_TYPES = [
 
   // the night, and after
   type('bed', ['date', 'hookup'], 'night', 'you are alone together at last, and there is nothing between you', [
+    // the engine's own encounter, round by round (world/datescreen.mjs hands it over)
+    choice('encounter', 'Take your time', 'you take your time with each other, as long as you both want', {}, { encounter: true }),
     checked('fuck', 'Fuck them', 'you fuck them', SK,
       { them: [['lust', 25], ['romance', 10]], youCome: true, theyCome: true }, { them: [['lust', 10]], youCome: true }, { act: 'fuck' }),
     checked('ride', 'Have them fuck you', 'they fuck you', SK,
@@ -353,6 +355,7 @@ export const BUILT_IN_DATE_WORDS = {
     stop: 'You stop there, clothes half off, and say that is all for tonight. {name} is not pleased.',
   } },
   bed: { setup: 'You are alone together at last. Clothes come off in a hurry, and then there is nothing between you.', outcomes: {
+    encounter: 'You take your time with {po}, and the night becomes whatever the two of you make of it.',
     'fuck|pass': 'You push into {po} slowly, then harder, until {name} is gasping and coming apart under you, and you follow over the edge.',
     'fuck|fail': 'You fuck {po} hard and fast and come too soon, shuddering, while {name} holds you and laughs softly into your neck.',
     'ride|pass': '{name} fucks you slow and deep, hands on your hips, until you come shaking, and {name} follows a moment later, groaning.',

@@ -197,7 +197,7 @@ export async function buildWorld(tables, opts = {}) {
 // riding on it - 39 of 110 tables carry functions on the same object as their
 // data, and the engine calls them. Assigning INTO the original instead keeps
 // the methods but never removes the original content, so the world would be
-// COT's data with ours layered on top.
+// the original's data with ours layered on top.
 //
 // So: build a fresh object, carry the functions across, then swap. Machinery
 // namespaces are handled member by member, because replacing one wholesale

@@ -1,7 +1,7 @@
 // world/hub.mjs — the main loop, built from the generated world.
 //
 // The chassis extraction keeps STRUCTURAL passages and deliberately drops
-// COT's authored scenes. That is the whole point of the project - their
+// the original's authored scenes. That is the whole point of the project - their
 // content is not ours to ship - but it left a consequence nobody had written
 // down: the machinery that survived still points at those scenes. The audit
 // puts numbers on it: 59 literal link targets that do not exist, 1,630 events
@@ -10,7 +10,7 @@
 //
 // The game therefore had a worldgen pipeline and a shell, and nowhere to go.
 //
-// This is the somewhere. It is not a port of COT's location screens; it is a
+// This is the somewhere. It is not a port of the original's location screens; it is a
 // small loop driven entirely by the world that was just generated - where you
 // are, what time it is, who is here, where you can go. A generated world
 // already contains all of that.

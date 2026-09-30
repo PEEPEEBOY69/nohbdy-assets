@@ -20,6 +20,8 @@ import { clockAt } from './workscreen.mjs';
 import { faceMarkup } from './portraits.mjs';
 
 export const DATE_PASSAGE = 'ObscuraDate';
+// Where the engine's encounter goes when it is over (its endpassage).
+export const ENCOUNTER_END = 'ObscuraEncounterEnd';
 export const EVENING_KEY = 'obscuraEvening';
 export const STAGE_MINUTES = { start: 60, middle: 45, kiss: 15, back: 15, night: 60, after: 30, arrive: 15, undress: 15 };
 // A night begun in person, where they are: from the clothes.
@@ -88,6 +90,17 @@ export function chooseInEvening(setup, V, choiceId, { random = Math.random } = {
   const t = dateTypeById(ev.moment);
   const ctx = contextFor(setup, V, ev);
   if (!choicesFor(t, ctx).some((c) => c.id === choiceId)) return null;
+  // the night handed to the engine's own encounter: it records what happens itself
+  if (t.choices.find((c) => c.id === choiceId).encounter) {
+    if (typeof setup.build_encounter !== 'function') return null;
+    try {
+      // the engine prints intro_text once, on the round's first screen
+      setup.build_encounter({ people: ['PC', ev.with], endpassage: ENCOUNTER_END, abortpassage: ENCOUNTER_END, aftercare: true,
+        intro_text: `At last it is only you and ${firstOf(setup, ev.with)}, and all the time in the world.` });
+    } catch (err) { console.warn('Obscura: the encounter could not begin', err); return null; }
+    ev.inEncounter = true;
+    return { key: choiceId, encounter: true, ends: false };
+  }
   const r = applyDateChoice(setup, V, { with: ev.with }, t, choiceId, { standing: standingWith(setup, ev.with), ctx, random });
   if (!r) return null;
   ev.result = { key: r.key, ends: r.ends };
@@ -210,7 +223,21 @@ export function installDateScreen(deps = {}) {
     return eveningHtml(setup, V(), { face: ev ? safe(() => faceMarkup(SC, ev.with, { Person: PersonClass }), '') : '' });
   };
 
-  setup.ob_date_choose = (id) => (chooseInEvening(setup, V(), id, { random }) ? play(DATE_PASSAGE) : false);
+  setup.ob_date_choose = (id) => {
+    const r = chooseInEvening(setup, V(), id, { random });
+    if (!r) return false;
+    return play(r.encounter ? 'EncounterRound' : DATE_PASSAGE);
+  };
+
+  // the engine's encounter is over (and its aftercare): the evening goes on
+  // from the night it was, or, if it was no evening's, the hub
+  setup.ob_encounter_end = () => {
+    const ev = V()[EVENING_KEY];
+    if (!ev || !ev.inEncounter) return 'ObscuraHub';
+    ev.inEncounter = false;
+    ev.result = { key: 'encounter', ends: false };
+    return DATE_PASSAGE;
+  };
   setup.ob_date_go_on = () => (continueEvening(setup, V(), { geo: geo(), random }) ? play(DATE_PASSAGE) : false);
   setup.ob_date_leave = () => {
     delete V()[EVENING_KEY];

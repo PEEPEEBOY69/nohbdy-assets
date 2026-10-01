@@ -53,6 +53,7 @@ import { installRelations } from './relations.mjs';
 import { dateContext } from './datemoments.mjs';
 import { useDateLog, emptyDateLog, restoreDateWords, writeDateWords, personBody } from './datebank.mjs';
 import { installNarration } from './narration.mjs';
+import { installHints } from './hints.mjs';
 import { writeTheNarration, restoreNarration, useNarrationLog, emptyNarrationLog, narrationWords } from './narrationbank.mjs';
 import { ensureRent, installRent } from './rent.mjs';
 import { installWork, restoreMoments, writeLineMoments, useMomentLog } from './workscreen.mjs';
@@ -1016,6 +1017,18 @@ export function installEncounterHook(deps = {}) {
     return installNarration({ ...deps, SugarCube: SC, words: (name, dir) => narrationWords(name, dir) });
   } catch (err) {
     console.warn('Obscura: the encounter could not start', err);
+    return false;
+  }
+}
+
+// The hints (world/hints.mjs): Obscura's own, which its StoryHints prints
+// where the engine's opened the original's campus storylines.
+export function installHintsHook(deps = {}) {
+  try {
+    const SC = deps.SugarCube || (typeof window !== 'undefined' ? window.SugarCube : null);
+    return installHints({ SugarCube: SC });
+  } catch (err) {
+    console.warn('Obscura: the hints could not start', err);
     return false;
   }
 }

@@ -77,11 +77,14 @@ export function startEvening(setup, V, d, { geo = null, random = Math.random, st
   const place = geo && geo.places && geo.places[d.place];
   V[EVENING_KEY] = {
     with: d.with, kind: d.kind, place: d.place, placeKind: (place && place.kind) || null,
-    stages: stages || DATE_FLOW[d.kind] || DATE_FLOW.date, at: 0, moment: null, result: null, recent: [], ended: false, back: null,
+    stages: stages || DATE_FLOW[d.kind] || DATE_FLOW.date, at: 0, moment: null, result: null, recent: [], ended: false, back: null, undressed: null,
   };
   pickFor(setup, V, random);
   return V[EVENING_KEY];
 }
+
+// Who the night's clothes left naked, as the engine's encounter conditions.
+const NAKED = { strip: 'pc naked', them: 'partner naked', tear: 'all naked' };
 
 // A choice in the moment on screen: once, and only one the moment offers.
 export function chooseInEvening(setup, V, choiceId, { random = Math.random } = {}) {
@@ -95,8 +98,21 @@ export function chooseInEvening(setup, V, choiceId, { random = Math.random } = {
     if (typeof setup.build_encounter !== 'function') return null;
     try {
       // the engine prints intro_text once, on the round's first screen
-      setup.build_encounter({ people: ['PC', ev.with], endpassage: ENCOUNTER_END, abortpassage: ENCOUNTER_END, aftercare: true,
-        intro_text: `At last it is only you and ${firstOf(setup, ev.with)}, and all the time in the world.` });
+      const config = { people: ['PC', ev.with], endpassage: ENCOUNTER_END, abortpassage: ENCOUNTER_END, aftercare: true,
+        intro_text: `At last it is only you and ${firstOf(setup, ev.with)}, and all the time in the world.` };
+      // the night's clothes carried in: whoever was undressed starts the round naked (the engine strips them
+      // with its own remove_all_clothing, and dresses the player again after with fix_clothing)
+      if (NAKED[ev.undressed]) config.conditions = [NAKED[ev.undressed]];
+      setup.build_encounter(config);
+      // the engine's own "partner naked" never runs (it counts partners against
+      // an array), so the partner is undressed here, by the Person's own method,
+      // temporarily as the engine's stripping is
+      if (ev.undressed === 'them' || ev.undressed === 'tear') {
+        const enc = V.encounter;
+        for (const p of (enc && typeof enc.partners === 'function' ? enc.partners(true) : []) || []) {
+          if (p && typeof p.remove_all_clothing === 'function') p.remove_all_clothing(true);
+        }
+      }
     } catch (err) { console.warn('Obscura: the encounter could not begin', err); return null; }
     ev.inEncounter = true;
     return { key: choiceId, encounter: true, ends: false };
@@ -104,6 +120,7 @@ export function chooseInEvening(setup, V, choiceId, { random = Math.random } = {
   const r = applyDateChoice(setup, V, { with: ev.with }, t, choiceId, { standing: standingWith(setup, ev.with), ctx, random });
   if (!r) return null;
   ev.result = { key: r.key, ends: r.ends };
+  if (t.id === 'undress') ev.undressed = r.key;
   // where the night goes on: the player's, or theirs
   if (r.key === 'mine|pass') ev.back = 'mine';
   else if (r.key === 'theirs|pass' || (t.id === 'insist' && r.key === 'give')) ev.back = 'theirs';

@@ -147,13 +147,16 @@ export function actWords(act, { you = 'subject', partner = {}, youGender = '' } 
 
 // A position taken: who moved whom into it, and where the player is in it.
 const PREPOSITIONS = /^(against|on|in|under|over|behind|between|across|at)\b/;
+const wordsOf = (s) => String(s).toLowerCase().split(/[^a-z]+/).filter((w) => w && !['the', 'a', 'an'].includes(w));
+
 export function positionWords(pos, { mover = 'you', role = 'top', partner = {} } = {}) {
   const label = String(pos.label || pos.name || '').toLowerCase();
   const where = role === 'top' ? pos['label top'] : pos['label bottom'];
   if (/^wait/.test(label)) return mover === 'you' ? 'You wait.' : `${partner.name || 'They'} makes you wait.`;
   const into = PREPOSITIONS.test(label) ? label : `into ${label}`;
-  // where the player is, unless the position's own name already says it
-  const said = where && !label.includes(String(where).toLowerCase()) ? where : '';
+  // where the player is, unless the position's own name already says it (word
+  // for word, articles aside: "against wall" is in "against the wall from behind")
+  const said = where && !wordsOf(where).every((w) => wordsOf(label).includes(w)) ? where : '';
   if (mover === 'you') return `You move ${into}${said ? `, ${said}` : ''}.`;
   return `${partner.name || 'They'} moves you ${into}${said ? `, you ${said}` : ''}.`;
 }

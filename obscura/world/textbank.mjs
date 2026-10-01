@@ -14,6 +14,8 @@ import {
   PAIRS_PER_CELL, MAX_HALF, FOOTING, parsePairs, cleanHalf, validHalf, splitPair,
 } from './talkbank.mjs';
 import { faultsIn as defaultFaults } from './persona.mjs';
+import { PEOPLE_BODIES, namesUnknownBody } from './bodyrule.mjs';
+export { namesUnknownBody };
 
 export const TEXT_ACTIONS = ['chat', 'compliment', 'flirt', 'sext', 'sendpic', 'askpic', 'meet', 'proposition'];
 export const TEXT_TIERS = ['acquaintance', 'friend', 'close', 'romantic', 'rival'];
@@ -77,7 +79,6 @@ const items = (cells) => cells.flatMap((c) => WAYS.slice(0, PAIRS_PER_CELL).map(
 // (probed 2026-09-30). So the people never name their own parts, the player
 // never names theirs, and only the player's body - which the writer is told -
 // is named.
-const PEOPLE_BODIES = '- The people here have every kind of body: they never name their own body parts or say they are wet or hard. What they want done is said plainly.';
 const OF_THIS_WORLD = '- Messages sound like this world and its time: nothing of offices, meetings, reports or phones unless this world has them.';
 const NO_GARMENTS = '- Never name a garment: clothes are only ever "clothes".';
 const exchangeRules = () => [
@@ -106,14 +107,6 @@ const firstRules = () => [
   '- Words only: no names, no narration, no quotation marks, no brackets.',
 ];
 
-// What the prompt asks and the real model does not always keep, kept here:
-// the sender naming the other's parts ("slide your cock inside me"), and the
-// people naming their own or saying they are wet or hard. The bank is answered
-// by people of every body, so such a line would be wrong for most of them.
-const PARTS = '(?:cock|dick|shaft|balls|pussy|cunt|clit|clitoris|slit|tits|breasts|nipples)';
-const OTHERS_PARTS = new RegExp(`\\byour\\s+(?:[a-z-]+\\s+)?${PARTS}\\b`, 'i');
-const OWN_PARTS = new RegExp(`\\bmy\\s+(?:[a-z-]+\\s+)?${PARTS}\\b|\\bi(?:'m|\\s+am)\\s+(?:so\\s+|already\\s+|getting\\s+|all\\s+)?(?:wet|hard|soaking|dripping)\\b`, 'i');
-export const namesUnknownBody = (you, them) => OTHERS_PARTS.test(you || '') || OWN_PARTS.test(them || '');
 
 // One call's prompt. A call is all exchanges or all first texts, never both
 // (textCells orders them so). sender: the player's body (world/momentbank.mjs

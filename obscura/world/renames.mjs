@@ -23,6 +23,26 @@ const SPORT_WORDS = ['football', 'cheerleading', 'esports'];
 // Years printed alone as a label; only the first two are school words in prose.
 const YEAR_WORDS = ['freshman', 'sophomore'];
 
+// The original's own coined names, which no world shares: Obscura's word for
+// each until the model names it for this world (schoolNames asks for it).
+export const COINED = { Elkbook: 'Facade' };
+
+// A save's renames with the coined defaults under them, the model's own
+// answer winning. Kept per save object and re-made when its renames grow, so
+// the guard and the lexicon, which cache compiled rules by object, still do.
+const coinedMemo = new WeakMap();
+const ONLY_COINED = Object.freeze({ exact: Object.freeze({ ...COINED }), words: Object.freeze({}), subjects: Object.freeze({}), done: false });
+export function withCoined(renames) {
+  if (!renames || typeof renames !== 'object') return ONLY_COINED;
+  const exact = renames.exact || {};
+  const key = `${Object.keys(exact).length}/${Object.keys(renames.words || {}).length}`;
+  const hit = coinedMemo.get(renames);
+  if (hit && hit.key === key) return hit.merged;
+  const merged = { ...renames, exact: { ...COINED, ...exact } };
+  coinedMemo.set(renames, { key, merged });
+  return merged;
+}
+
 export function schoolNames(setup) {
   const S = (setup && setup.School) || {};
   const frame = [];
@@ -53,6 +73,8 @@ export function schoolNames(setup) {
   for (const s of Object.keys(S.sports || {})) if (SPORT_WORDS.includes(s)) add(s, 'an organised game or team activity (lower case)', 'words');
   const houses = setup && setup.ob_houses && setup.ob_houses.db;
   for (const h of Object.keys(houses || {})) add(h, 'an exclusive house members can join');
+  // the original's own social network, which no world shares (COINED holds Obscura's word until this lands)
+  add('Elkbook', 'the network where people here post their lives for friends and strangers to see');
   const courses = Object.entries(S.courses || {}).map(([original, c], i) => ({
     id: String(i + 1), original, group: c && c.major, year: (c && c.year) || 1, kind: 'exact',
   }));

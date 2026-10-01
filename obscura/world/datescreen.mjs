@@ -73,11 +73,46 @@ function pickFor(setup, V, random) {
   return null;
 }
 
+// What the two of you have been through, in Obscura's words: the engine's own
+// milestones (setup.ob_relationships.milestones, reached_milestones), each
+// said the way the evening's last screen says it. A milestone the engine adds
+// later and this does not know is left out rather than printed as a key.
+export const MILESTONE_WORDS = {
+  'first date': 'a first date',
+  'third date': 'a third date',
+  'first kiss': 'a first kiss',
+  'favorite date': 'the kind of evening they like best',
+  'gave great gift': 'a gift they loved',
+  'made cum': 'you made them come',
+  'had sex': 'a night together',
+  'in relationship': 'being together',
+  dorm: 'a night back at yours',
+  bedroom: 'a night in their bed',
+};
+
+export function reachedMilestones(setup, name) {
+  try {
+    const r = setup.ob_relationships.reached_milestones(name);
+    return Array.isArray(r) ? r.slice() : [];
+  } catch { return []; }
+}
+
+// "Between you so far: a first date, and a first kiss, new tonight."
+export function milestoneLine(reached, before = []) {
+  const known = (reached || []).filter((k) => MILESTONE_WORDS[k]);
+  if (!known.length) return '';
+  const was = new Set(before || []);
+  const said = known.map((k) => (was.has(k) ? MILESTONE_WORDS[k] : `${MILESTONE_WORDS[k]}, new tonight`));
+  const list = said.length > 1 ? `${said.slice(0, -1).join('; ')}; and ${said[said.length - 1]}` : said[0];
+  return `Between you so far: ${list}.`;
+}
+
 export function startEvening(setup, V, d, { geo = null, random = Math.random, stages = null } = {}) {
   const place = geo && geo.places && geo.places[d.place];
   V[EVENING_KEY] = {
     with: d.with, kind: d.kind, place: d.place, placeKind: (place && place.kind) || null,
     stages: stages || DATE_FLOW[d.kind] || DATE_FLOW.date, at: 0, moment: null, result: null, recent: [], ended: false, back: null, undressed: null,
+    milestonesBefore: reachedMilestones(setup, d.with),
   };
   pickFor(setup, V, random);
   return V[EVENING_KEY];
@@ -188,6 +223,7 @@ export function eveningHtml(setup, V, { face = '' } = {}) {
     const label = s.relationship ? safe(() => setup.ob_relationships.label(s.relationship, ev.with), TIER_LABEL[tierOf(s)]) : TIER_LABEL[tierOf(s)];
     out.push(`<div class="ob-date-end"><p>The ${ev.kind === 'hookup' ? 'night' : 'evening'} with ${esc(first)} is over.</p>`
       + `<p class="ob-date-standing">${esc(first)}: ${esc(label)}.</p>`
+      + ((m) => (m ? `<p class="ob-date-milestones">${esc(m)}</p>` : ''))(milestoneLine(reachedMilestones(setup, ev.with), ev.milestonesBefore))
       + `${typeof setup.ob_offers_html === 'function' ? safe(() => setup.ob_offers_html(ev.with), '') : ''}`
       + '<<link "Back">><<run setup.ob_date_leave()>><</link>></div>');
   }

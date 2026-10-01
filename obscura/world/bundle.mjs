@@ -14,6 +14,7 @@ export {
   installPainterHook, installSidebarHook, installPhoneHook, startWriter, installGuardHook, installWriterControls,
   installCastHook, getRenames, installTalkHook, installPortraitsHook, installNeedsHook, installShopHook, goodsSignature,
   installWorkHook, installRentHook, installTextingHook, installDatesHook, installEncounterHook, installHintsHook,
+  installInclinationsHook, installDescriptionsHook,
 } from './flow.mjs';
 export { readImport, characterFromCard, loreFromJson, loreFromText, cardTextFromPng, worldBriefFrom } from './imports.mjs';
 export { castSets, buildCastPrompt, parseCast, castName, addCastMember, mapPending, joinPending, settleIn, CAST_KEY, CAST_PENDING_KEY } from './cast.mjs';

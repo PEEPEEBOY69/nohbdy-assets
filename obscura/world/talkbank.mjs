@@ -13,6 +13,7 @@
 // A record has the engine's own dialogue shape, {tags, content}, and its
 // content is pairs: "you: ... || them: ...".
 import { faultsIn as defaultFaults } from './persona.mjs';
+import { PEOPLE_BODIES, namesUnknownBody } from './bodyrule.mjs';
 
 export const ACTIONS = ['chat', 'ask', 'compliment', 'flirt', 'tease', 'number', 'askout', 'proposition', 'goodbye'];
 export const TIERS = ['stranger', 'acquaintance', 'friend', 'close', 'romantic', 'rival'];
@@ -104,6 +105,7 @@ export function buildBankPrompt(persona, cells) {
     '',
     'RULES',
     ...FORMAT_RULES,
+    PEOPLE_BODIES,
     '',
     'MOMENTS',
     ...momentItems(cells, true),
@@ -343,6 +345,18 @@ const byCell = (got, cells) => {
   return out;
 };
 
+// The world's lines are written for everyone, so a pair naming a body nobody
+// described is dropped (world/bodyrule.mjs), as the texts' are. A person's
+// own lines are written knowing them, and keep theirs.
+export function knownBodies(byNumber) {
+  const out = {};
+  for (const [n, pairs] of Object.entries(byNumber || {})) {
+    const kept = pairs.filter((p) => { const { you, them } = splitPair(p); return !namesUnknownBody(you, them); });
+    if (kept.length) out[n] = kept;
+  }
+  return out;
+}
+
 // The world's bank, BANK_CELLS_PER_CALL cells a call, in the background. A
 // batch that came back short is asked once more for what it did not bring;
 // what still fails stays on the lines built in. Saved after every batch, so a
@@ -358,7 +372,7 @@ export async function writeWorldBank({
     for (let attempt = 0; attempt < 2 && batch.length; attempt += 1) {
       const text = typeof persona === 'function' ? persona() : persona;
       const reply = await ask(model, buildBankPrompt(text, batch), batch.length);
-      const got = byCell(parsePairs(reply, batch.length * PAIRS_PER_CELL, faultsIn), batch);
+      const got = byCell(knownBodies(parsePairs(reply, batch.length * PAIRS_PER_CELL, faultsIn)), batch);
       for (const c of batch) {
         if (got[c.id] && got[c.id].length) { log.world[c.id] = got[c.id]; written += 1; }
       }

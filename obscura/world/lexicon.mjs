@@ -92,6 +92,19 @@ export const TERMS = [
   ['gpa', 'standing'],
 ];
 
+// English that only looks like the school's words: "of course" is not a course
+// and "world-class" is not a class. Matched before every term and kept as it
+// is (the long walk saw "of keshmodule" on the portrait screen, v42).
+export const IDIOMS = [
+  'of course', 'in due course', 'course of action', 'courses of action', 'main course', 'golf course',
+  'to some degree', 'to a degree', 'by degrees', 'third degree',
+  'first class', 'first-class', 'world class', 'world-class', 'middle class', 'working class', 'upper class',
+  'lower class', 'high-class', 'low-class',
+  'old school', 'old-school', 'school of thought', 'schools of thought',
+  'major league', 'major-league',
+];
+const IDIOM_RE = new RegExp(`\\b(?:${IDIOMS.map((i) => i.replace(/[-]/g, '\\-').replace(/ /g, '\\s+')).join('|')})\\b`, 'gi');
+
 // Carries the original's case: lower, UPPER, Title. Mixed case falls back to
 // the replacement as written, which is what a proper noun wants.
 // A replacement may carry its own leading article ("the Grid"), written
@@ -199,16 +212,33 @@ export function segment(text) {
       // rewritten - the substitution was skipping the whole macro, label and
       // all. Measured: 511 such labels, 12 of them carrying the vocabulary.
       //
-      // Only the FIRST quoted argument, and only when it contains no nested
-      // macro of its own: `<<button "<<highlight x>>! College">>` has markup
-      // inside the label, and splitting on quotes there would cut a macro in
-      // half.
+      // Only the FIRST quoted argument. A label with markup inside it -
+      // `<<button "<<highlight x>>! College">>` - ends at the first quote
+      // outside its nested macros; those macros stay code, whole, and the
+      // words around them are prose (v42: the sidebar said "! College").
       const m = /^<<(link|button)\s+"([^"<>]*)"/.exec(macro);
+      const nested = !m && /^<<(link|button)\s+"/.exec(macro);
+      let end = -1;
+      if (nested) {
+        for (let k = nested[0].length, d = 0; k < macro.length; k++) {
+          if (macro.startsWith('<<', k)) { d++; k++; continue; }
+          if (macro.startsWith('>>', k)) { d--; k++; continue; }
+          if (macro[k] === '"' && d === 0) { end = k; break; }
+        }
+      }
       if (m) {
         const head = `<<${m[1]} "`;
         code(head);
         out.push({ kind: 'prose', text: m[2] });
         code(macro.slice(head.length + m[2].length));
+      } else if (nested && end !== -1) {
+        code(macro.slice(0, nested[0].length));
+        for (const part of macro.slice(nested[0].length, end).split(/(<<[\s\S]*?>>)/)) {
+          if (!part) continue;
+          if (part.startsWith('<<')) code(part);
+          else out.push({ kind: 'prose', text: part });
+        }
+        code(macro.slice(end));
       } else {
         code(macro);
       }
@@ -326,6 +356,8 @@ export function renameText(text, rules) {
 export function compile(lexicon = {}, renames = null) {
   const lex = { ...DEFAULT_LEXICON, ...lexicon };
   const rules = [];
+  // idioms first, kept as they are: no later rule sees inside one
+  rules.push({ re: new RegExp(IDIOM_RE.source, 'gi'), build: (m) => m });
   // the school's names first: a course whose name holds a term is renamed whole
   rules.push(...renameRules(renames));
 

@@ -23,7 +23,7 @@ import { createBuildScreen } from './buildscreen.mjs';
 import { namesFit, generateNames, applyNameLists } from './names.mjs';
 import { worldBriefFrom } from './imports.mjs';
 import { castSets, mapPending, joinPending, unmapped, CAST_PENDING_KEY } from './cast.mjs';
-import { nameTheSchool, schoolTooltips, emptyRenames, placeRenames, RENAMES_KEY } from './renames.mjs';
+import { nameTheSchool, schoolTooltips, emptyRenames, placeRenames, RENAMES_KEY, withCoined } from './renames.mjs';
 import { OPENING_SEEDS } from './tiers.mjs';
 import {
   generateLexicon, DEFAULT_LEXICON, install as installLexicon,
@@ -54,6 +54,8 @@ import { dateContext } from './datemoments.mjs';
 import { useDateLog, emptyDateLog, restoreDateWords, writeDateWords, personBody } from './datebank.mjs';
 import { installNarration } from './narration.mjs';
 import { installHints } from './hints.mjs';
+import { installInclinationsList } from './inclinationslist.mjs';
+import { installDescriptions, configLabel } from './describe.mjs';
 import { writeTheNarration, restoreNarration, useNarrationLog, emptyNarrationLog, narrationWords } from './narrationbank.mjs';
 import { ensureRent, installRent } from './rent.mjs';
 import { installWork, restoreMoments, writeLineMoments, useMomentLog } from './workscreen.mjs';
@@ -629,7 +631,9 @@ export function installCastHook(deps = {}) {
 let guard = null;
 export function installGuardHook(deps = {}) {
   if (guard) return guard;
-  try { guard = installGuard({ ...deps, transform: renamesTransform(deps) }); } catch (err) { console.warn('Obscura: the guard could not start', err); }
+  // the renames, then a clothing configuration's label in Obscura's words (world/describe.mjs)
+  const renames = renamesTransform(deps);
+  try { guard = installGuard({ ...deps, transform: (t) => configLabel(renames(t)) }); } catch (err) { console.warn('Obscura: the guard could not start', err); }
   return guard;
 }
 
@@ -816,8 +820,8 @@ export function getRenames(deps = {}) {
 const renameMemo = new WeakMap();
 function renamesTransform(deps) {
   return (text) => {
-    const r = getRenames(deps);
-    if (!r) return text;
+    // the original's coined names in Obscura's words until the world's land (world/renames.mjs)
+    const r = withCoined(getRenames(deps));
     const key = `${Object.keys(r.exact || {}).length}/${Object.keys(r.words || {}).length}`;
     let hit = renameMemo.get(r);
     if (!hit || hit.key !== key) { hit = { key, rules: renameRules(r) }; renameMemo.set(r, hit); }
@@ -1033,6 +1037,30 @@ export function installHintsHook(deps = {}) {
   }
 }
 
+// Every inclination there is (world/inclinationslist.mjs): the list the
+// Inclinations tab's last link opens, which the engine never shipped.
+export function installInclinationsHook(deps = {}) {
+  try {
+    const SC = deps.SugarCube || (typeof window !== 'undefined' ? window.SugarCube : null);
+    return installInclinationsList({ SugarCube: SC });
+  } catch (err) {
+    console.warn('Obscura: the inclinations list could not start', err);
+    return false;
+  }
+}
+
+// How a person's hair reads (world/describe.mjs): the engine's sentence, its
+// hairstyle in Obscura's words where the original phrased it at length.
+export function installDescriptionsHook(deps = {}) {
+  try {
+    const Person = deps.Person !== undefined ? deps.Person : (typeof window !== 'undefined' ? window.Person : null);
+    return installDescriptions({ Person });
+  } catch (err) {
+    console.warn('Obscura: the descriptions could not start', err);
+    return false;
+  }
+}
+
 // The week's rent (world/rent.mjs): the engine's Monday evening, answered.
 export function installRentHook(deps = {}) {
   try { return installRent(deps); } catch { return false; }
@@ -1106,7 +1134,7 @@ export function installLexiconHook(deps = {}) {
     || (typeof window !== 'undefined' && window.SugarCube && window.SugarCube.Config);
   if (!config || !config.passages) return false;
   if (installedOn.has(config.passages)) return true;
-  installLexicon(config, () => getLexicon(deps), () => getRenames(deps));
+  installLexicon(config, () => getLexicon(deps), () => withCoined(getRenames(deps)));
   installedOn.add(config.passages);
   return true;
 }

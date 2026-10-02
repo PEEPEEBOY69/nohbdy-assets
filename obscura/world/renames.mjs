@@ -25,7 +25,7 @@ const YEAR_WORDS = ['freshman', 'sophomore'];
 
 // The original's own coined names, which no world shares: Obscura's word for
 // each until the model names it for this world (schoolNames asks for it).
-export const COINED = { Elkbook: 'Facade' };
+export const COINED = { Elkbook: 'Facade', SchoolPride: 'Local Pride' };
 
 // A save's renames with the coined defaults under them, the model's own
 // answer winning. Kept per save object and re-made when its renames grow, so

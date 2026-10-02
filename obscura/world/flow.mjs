@@ -17,6 +17,7 @@ import { findPlugin } from './plugins.mjs';
 import {
   planWorld, planChassis, replayWriting, createWriter, setCurrentWriter, currentWriter,
   tablesForScreen, writingLine, writerStatus, PLAN_LOG, WRITES_LOG, WRITER_FIELDS_PER_CALL,
+  setStage, currentStage, arrivalLine,
 } from './writer.mjs';
 import { installGuard } from './guard.mjs';
 import { createBuildScreen } from './buildscreen.mjs';
@@ -26,7 +27,7 @@ import { castSets, mapPending, joinPending, unmapped, CAST_PENDING_KEY } from '.
 import { nameTheSchool, schoolTooltips, emptyRenames, placeRenames, RENAMES_KEY, withCoined } from './renames.mjs';
 import { OPENING_SEEDS } from './tiers.mjs';
 import {
-  generateLexicon, DEFAULT_LEXICON, install as installLexicon,
+  generateLexicon, DEFAULT_LEXICON, install as installLexicon, lexiconWords, installDialogTitles,
   compile as compileLexicon, substitute as substituteLexicon, applyLexiconToTables, renameRules, renameText,
 } from './lexicon.mjs';
 import { createLivingWorld, installLivingWorld, replayGrowth, GROWTH_KEY } from './living.mjs';
@@ -197,7 +198,8 @@ export async function startBuild(premise, progressId, done, deps = {}) {
     // The world as the first call made it: a short premise made concrete, and
     // which of the school's systems it has (world/renames.mjs). Every later
     // call builds from the same picture.
-    const world = { setting: lex.setting || '', systems: lex.systems || { timetable: true, grades: true, sports: true, divisions: true } };
+    // no ruling at all is a world that was never a school (world/lexicon.mjs, parseSystems)
+    const world = { setting: lex.setting || '', systems: lex.systems || { timetable: false, grades: false, sports: false, divisions: false } };
     const told = world.setting ? `${chosen}\n\n${world.setting}` : chosen;
 
     // The structure, from the stub alone - no model. The engine's own data is
@@ -361,45 +363,62 @@ export async function startBuild(premise, progressId, done, deps = {}) {
     const shown = ui();
     if (shown) shown.ready(enterWorld); else enterWorld();
 
-    // The world's own places, after the hand-over (world/layout.mjs). Without
-    // them every world is the original's campus and town - Blodgett Gymnasium
-    // in a rain-dark city. Places are shown from the hub on, and character
-    // creation takes longer than this one call; the places named up front were
-    // 118 of 141 seconds of waiting (perchance.org, 2026-09-23). Asked before
-    // anything else, so it is first in the queue.
-    if (model.available()) {
-      layTheWorld({ setup, model, persona: buildPersona(told, lex.lexicon), live, SugarCube: deps.SugarCube,
-        timetable: !(world && world.systems && world.systems.timetable === false) });
-    }
-
-    // Then, one queue in the order the player meets them: the school's names
-    // (on every sidebar from the first screen), the people the player brought
-    // (read onto the engine's closed sets, made into people at the first real
-    // place - installCastHook), and the rest of the world's prose, written
-    // while the player picks a name and plays.
-    const school = model.available()
-      ? nameTheSchool({ setup, model, premise: told, lexicon: lex.lexicon, live, onBatch: () => refreshPlace(deps.SugarCube) })
-        .catch((err) => console.warn('Obscura: the school could not be renamed', err))
-      : Promise.resolve();
-    // How people talk here (world/talk.mjs): the world's own lines, after the
-    // school's names and before the people brought in and the writer. Until
-    // they land, and wherever a call fails, a conversation uses the lines
-    // built in: nobody is ever silent.
+    // Then one queue, in the order the player meets them, each step saying
+    // itself on the hub while it runs (world/writer.mjs, the arrival's stage).
+    // The world's own places first (world/layout.mjs): without them every world
+    // is the original's campus and town, Blodgett Gymnasium in a rain-dark city,
+    // and character creation takes longer than this one call (the places named
+    // up front were 118 of 141 seconds of waiting, perchance.org, 2026-09-23).
+    // Then the world's first lines (world/talk.mjs), a stranger's commonest, so
+    // the first conversations are in the world's words about a minute in: they
+    // came at seven minutes when they waited behind the names (v42, the real
+    // plugins). Then what its kitchens and shops hold, the school's names (on
+    // every sidebar from the first screen), the rest of its lines, the people
+    // the player brought (read onto the engine's closed sets, made into people
+    // at the first real place - installCastHook), and the rest of the world's
+    // prose, written while the player plays. Until a piece lands, and wherever
+    // a call fails, the game uses what is built in: nobody is ever silent.
     startTalkWorld(worldId);
-    const talk = school.then(() => (model.available()
-      ? writeTheWorldBank({ model, store, worldId, faultsIn,
-        persona: () => buildPersona((live() && live().obscuraPremise) || told, getLexicon(deps)) })
-      : null)).catch((err) => console.warn('Obscura: the world\'s lines could not be written', err));
-    const cast = talk.then(() => (model.available() && unmapped(vars && vars[CAST_PENDING_KEY]).length
-      ? mapPending({ model, premise: told, sets: castSets(setup), vars: live })
-      : null)).catch((err) => console.warn('Obscura: the characters could not be read', err));
-    if (model.available() && plan.length) {
-      cast.finally(() => startWriter({
-        model, setup, plan, writes: {}, worldId, store, document: doc,
-        premise: () => (live() && live().obscuraPremise) || told,
-        lexicon: () => getLexicon(deps),
-        jQuery: deps.jQuery,
-      }));
+    if (model.available()) {
+      const stageTo = (s) => { setStage(s); showStage(doc); };
+      const persona = buildPersona(told, lex.lexicon);
+      const lines = (batches) => writeTheWorldBank({ model, store, worldId, faultsIn, batches,
+        persona: () => buildPersona((live() && live().obscuraPremise) || told, getLexicon(deps)) });
+      const warn = (what) => (err) => console.warn(`Obscura: ${what}`, err);
+      const queue = Promise.resolve()
+        .then(() => { stageTo('places'); return layOut({ setup, model, persona, live, SugarCube: deps.SugarCube,
+          timetable: !(world && world.systems && world.systems.timetable === false) }); })
+        .catch(warn('the world could not be laid out'))
+        .then(() => { stageTo('talk'); return lines(1); })
+        .catch(warn('the world\'s first lines could not be written'))
+        .then(() => {
+          stageTo('names');
+          return nameTheSchool({ setup, model, premise: told, lexicon: lex.lexicon, live, onBatch: () => refreshPlace(deps.SugarCube) });
+        })
+        .catch(warn('the school could not be renamed'))
+        .then(() => { stageTo('goods'); return nameTheGoods({ setup, model, persona, live }); })
+        .catch(warn('the world\'s goods could not be named'))
+        .then(() => { stageTo('talk'); return lines(); })
+        .catch(warn('the world\'s lines could not be written'))
+        .then(() => {
+          if (!unmapped(vars && vars[CAST_PENDING_KEY]).length) return null;
+          stageTo('cast');
+          return mapPending({ model, premise: told, sets: castSets(setup), vars: live });
+        })
+        .catch(warn('the characters could not be read'))
+        .then(() => {
+          stageTo(null);
+          if (!plan.length) return null;
+          return startWriter({
+            model, setup, plan, writes: {}, worldId, store, document: doc,
+            premise: () => (live() && live().obscuraPremise) || told,
+            lexicon: () => getLexicon(deps),
+            jQuery: deps.jQuery,
+          });
+        })
+        .catch(warn('the writer could not start'));
+      // for the tests: the queue, done once the writer has started
+      Object.defineProperty(built, 'queue', { value: queue, enumerable: false });
     }
     return built;
   } catch (err) {
@@ -533,6 +552,7 @@ function nameThePlaces({ setup, model, persona, live, SugarCube }) {
 // ONE writer per page (world/writer.mjs), started after a build and again
 // after a restore with what the log says is still unwritten.
 export function startWriter(deps) {
+  setStage(null);
   const previous = currentWriter();
   if (previous) previous.stop();
   const generator = new AiGenerator({
@@ -565,6 +585,18 @@ function showWriting(progress, doc) {
   const line = writingLine(progress);
   el.textContent = line;
   if (!line && el.style) el.style.display = 'none';
+}
+
+// The hub's line in place as the arrival's stage moves, until the writer's
+// share takes over (world/writer.mjs).
+function showStage(doc) {
+  const d = doc || (typeof document !== 'undefined' ? document : null);
+  const el = d && typeof d.getElementById === 'function' ? d.getElementById('ob-writing') : null;
+  if (!el) return;
+  const w = currentWriter();
+  const line = arrivalLine(currentStage(), w ? w.progress() : null);
+  el.textContent = line;
+  if (el.style) el.style.display = line ? '' : 'none';
 }
 
 // A screen the player opens moves its tables to the front of the writer's
@@ -859,6 +891,8 @@ export function installHubHook(deps = {}) {
       // An area of the original's places is named for its map ("Campus"); its
       // name goes through this world's vocabulary, as the passages' text does.
       areaName: (area) => substituteLexicon(String((area && area.name) || ''), compileLexicon(getLexicon(deps))),
+      // and a place's, until the world's own places land (world/hub.mjs)
+      placeName: (name) => substituteLexicon(String(name || ''), compileLexicon(getLexicon(deps))),
       // The switch is offered only where a painter was installed.
       paint: () => ({ available: typeof window !== 'undefined' && !!window.ObscuraPainter, on: paintEnabled() }),
       togglePaint: () => setPaintEnabled(!paintEnabled()),
@@ -1135,6 +1169,12 @@ export function installLexiconHook(deps = {}) {
   if (!config || !config.passages) return false;
   if (installedOn.has(config.passages)) return true;
   installLexicon(config, () => getLexicon(deps), () => withCoined(getRenames(deps)));
+  // and the titles of dialogs, which are set in script
+  installDialogTitles({
+    $: deps.jQuery !== undefined ? deps.jQuery : (typeof window !== 'undefined' ? window.jQuery : null),
+    doc: deps.document !== undefined ? deps.document : (typeof document !== 'undefined' ? document : null),
+    words: lexiconWords(() => getLexicon(deps), () => withCoined(getRenames(deps))),
+  });
   installedOn.add(config.passages);
   return true;
 }

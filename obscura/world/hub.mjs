@@ -20,7 +20,7 @@
 // there cannot be a passage per location - a single hub sets V.location itself
 // and reads everything else from the world.
 
-import { writingLine, currentWriter } from './writer.mjs';
+import { arrivalLine, currentWriter, currentStage } from './writer.mjs';
 import { recallHere } from './recall.mjs';
 import { substituteWith } from './lexicon.mjs';
 import {
@@ -103,7 +103,10 @@ export function hubHtml(setup, V, opts = {}) {
   const node = placesIn(setup).get(V && V.location) || null;
   const lines = [];
 
-  const name = here ? here.name : (opts.unknownName || 'somewhere you do not recognise');
+  // the original's map stands in until the world's places land: its names in
+  // the world's words ("Your Dorm" in a guild port, v43)
+  const nameOf = (n) => (geo && geo.source !== 'model' && typeof opts.placeName === 'function' ? opts.placeName(n) : n);
+  const name = here ? nameOf(here.name) : (opts.unknownName || 'somewhere you do not recognise');
 
   // The place's picture, big enough to see on a phone, where the sidebar that
   // normally shows it is hidden. It starts as the shipped room; the painter
@@ -127,9 +130,10 @@ export function hubHtml(setup, V, opts = {}) {
   }
   lines.push(`<div class="ob-hub-place"><b>${esc(name)}</b></div>`);
 
-  // The world is still being written in the background (world/writer.mjs).
-  const writing = writingLine(opts.writing !== undefined ? opts.writing
-    : (currentWriter() ? currentWriter().progress() : null));
+  // The world is still being written in the background (world/writer.mjs):
+  // what is being written before the writer runs, its share after.
+  const writing = arrivalLine(opts.stage !== undefined ? opts.stage : currentStage(),
+    opts.writing !== undefined ? opts.writing : (currentWriter() ? currentWriter().progress() : null));
   if (writing) lines.push(`<div class="ob-writing" id="ob-writing">${esc(writing)}</div>`);
 
   if (opts.notice) lines.push(`<div class="ob-hub-notice" style="opacity:0.75;font-size:0.9em">${esc(opts.notice)}</div>`);
@@ -171,7 +175,7 @@ export function hubHtml(setup, V, opts = {}) {
     lines.push('<div class="ob-hub-exits">');
     // The target is always the hub; the destination travels in a variable,
     // because a place has no passage of its own.
-    for (const e of exits) lines.push(`<<link "${esc(geo.places[e].name)}">><<run setup.ob_obscura_go("${esc(e)}")>><</link>>`);
+    for (const e of exits) lines.push(`<<link "${esc(nameOf(geo.places[e].name))}">><<run setup.ob_obscura_go("${esc(e)}")>><</link>>`);
     lines.push('</div>');
   } else {
     lines.push('<div class="ob-hub-exits ob-hub-noexit">Nowhere to go from here yet.</div>');
@@ -269,6 +273,7 @@ export function installHub(deps = {}) {
     // the names are people to talk to once world/talk.mjs is installed
     talk: typeof setup.ob_talk_open === 'function',
     areaName: deps.areaName,
+    placeName: deps.placeName,
   });
   setup.ob_obscura_paint_toggle = () => {
     if (typeof deps.togglePaint === 'function') deps.togglePaint();

@@ -144,7 +144,7 @@ export function tablesForScreen(name) {
   if (/invent/.test(t)) return ['ob_dormstuff', 'clothes', 'ob_food', 'ob_miscitems', 'sextoys', 'ob_cosmetics'];
   if (/outfit|cloth|wardrobe|dress/.test(t)) return ['clothes'];
   if (/charac/.test(t)) return ['inclinations', 'ob_skills', 'ob_startingTraits', 'ob_sexualities', 'ob_stats', 'people'];
-  if (/people|contact/.test(t)) return ['people', 'ob_archetypes', 'ob_relationships'];
+  if (/people|contact|person/.test(t)) return ['people', 'ob_archetypes', 'ob_relationships'];
   if (/hint/.test(t)) return ['ob_storyhints'];
   if (/schedule|class|course|school/.test(t)) return ['School'];
   if (/book|librar/.test(t)) return ['ob_books'];
@@ -283,6 +283,29 @@ export function createWriter(deps) {
 let current = null;
 export function setCurrentWriter(writer) { current = writer || null; }
 export function currentWriter() { return current; }
+
+// What the world is being written with before the writer runs. The hand-over
+// leaves a queue (world/flow.mjs) - the places, the world's first lines, what
+// its kitchens and shops hold, the names, the rest of its lines, the people
+// brought in - and for those minutes the hub said nothing: seven of them on the
+// real plugins (v42), which a player read as the model never being called.
+export const STAGE_WORDS = {
+  places: 'laying out its places',
+  talk: 'how people here talk',
+  goods: 'what its kitchens and shops hold',
+  names: 'naming things',
+  cast: 'the people you brought',
+};
+let stage = null;
+export function setStage(s) { stage = s && Object.prototype.hasOwnProperty.call(STAGE_WORDS, s) ? s : null; }
+export function currentStage() { return stage; }
+
+// The hub's line: the writer's share once it runs; before it, the stage.
+export function arrivalLine(s, progress) {
+  const line = writingLine(progress);
+  if (line) return line;
+  return s && Object.prototype.hasOwnProperty.call(STAGE_WORDS, s) ? `Still writing this world — ${STAGE_WORDS[s]}` : '';
+}
 
 // "Still writing this world — 38%, about 25 min", or nothing once it is done.
 export function writingLine(progress) {

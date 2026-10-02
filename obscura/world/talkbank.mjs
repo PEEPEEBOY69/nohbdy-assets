@@ -210,71 +210,141 @@ export const BUILT_IN = {
     "you: How's your day going? || them: Not bad. Better now, maybe.",
     'you: Busy around here today. || them: It always is, this time of day.',
     "you: Anything worth knowing about? || them: Nothing you won't hear about soon enough.",
+    'you: Quiet one today. || them: Quiet suits me. Loud days come soon enough.',
+    "you: What's the word around here? || them: Same as always. Too much to do, not enough hands.",
+    'you: Mind if I keep you company a minute? || them: Stay. I could use the break.',
+    "you: Weather's turning, isn't it? || them: It always does. Nobody here ever dresses for it.",
+    "you: You look like you've had a long one. || them: Long and not over yet. Thanks for noticing.",
   ],
   'ask|good': [
     'you: What do you do around here? || them: A bit of everything. Mostly I keep my head down.',
     'you: How long have you been here? || them: Long enough to know where not to go.',
     'you: What keeps you busy? || them: Work, mostly. And the people I put up with.',
+    "you: Where did you grow up? || them: Somewhere smaller than this. I don't miss it much.",
+    "you: What do you do when you're not working? || them: Sleep, if I'm lucky. Walk, if I'm not.",
+    "you: Who do you trust around here? || them: Fewer people than I'd like. You're not on the list yet.",
+    'you: What brought you here in the first place? || them: A long road and a short temper. Ask me another time.',
+    "you: What's the best thing about this place? || them: The people who stay. The rest come and go.",
   ],
   'compliment|good': [
     "you: You've got a good way about you. || them: That's kind of you to say.",
     'you: I like talking to you. || them: Careful. I might start to believe it.',
     "you: You always seem to know what's going on. || them: I pay attention. Most people don't.",
+    "you: You've got a great laugh. || them: You'll have to earn it, though.",
+    'you: I trust your judgement. || them: That makes one of us. Thank you.',
+    "you: You make this place better. || them: I'll remember you said that.",
+    "you: That suits you. || them: Does it? I wasn't sure about it this morning.",
+    "you: You're good at what you do. || them: I've had practice. It's nice to be noticed.",
   ],
   'flirt|good': [
     "you: I was hoping I'd run into you. || them: Were you? Then I'm glad you did.",
     "you: You're hard to stop looking at. || them: Then don't stop.",
     "you: Tell me you're free later. || them: For you, I could be.",
+    "you: Is it warm in here, or is it just you? || them: It's me. Stay and find out.",
+    "you: I'd remember a face like yours anywhere. || them: Then make sure you see it again.",
+    "you: You make it hard to think straight. || them: Good. Thinking's overrated.",
+    "you: Sit closer. I don't bite. || them: Shame. I might have liked it if you did.",
+    "you: Are you always this distracting? || them: Only when someone's worth distracting.",
   ],
   'flirt|bad': [
     "you: I was hoping I'd run into you. || them: I'm not sure what you're after, but no.",
     "you: You're hard to stop looking at. || them: Try harder.",
     "you: Tell me you're free later. || them: I'm not. Not for that.",
+    "you: Is it warm in here, or is it just you? || them: It's warm in here. That's all it is.",
+    "you: I'd remember a face like yours anywhere. || them: Don't. I'd rather you forgot it.",
+    'you: You make it hard to think straight. || them: Then think somewhere else.',
+    "you: Sit closer. I don't bite. || them: I'm fine where I am.",
+    "you: Are you always this distracting? || them: Only to people I don't want around.",
   ],
   'tease|good': [
     'you: You look like you slept in a ditch. || them: And you look like you never sleep at all.',
     "you: Still pretending you know what you're doing? || them: Still pretending you don't need my help?",
     "you: I saw you walk into that door. Twice. || them: It moved. I'll swear to it.",
+    'you: Did you get dressed in the dark? || them: At least I got dressed. Have you seen yourself?',
+    "you: I've seen snails move faster than you. || them: And I've seen snails with better manners.",
+    "you: Careful, you almost smiled. || them: Don't tell anyone. I have a name to keep.",
+    "you: You're terrible at hiding when you're bored. || them: I wasn't hiding it. That was for your benefit.",
+    "you: Is that your idea of a joke? || them: It's better than yours, and you know it.",
   ],
   'tease|bad': [
     "you: You look like you slept in a ditch. || them: That's not funny.",
     "you: Still pretending you know what you're doing? || them: Leave it.",
     'you: I saw you walk into that door. Twice. || them: Do you want something, or not?',
+    "you: Did you get dressed in the dark? || them: Do you think that's clever?",
+    "you: I've seen snails move faster than you. || them: Then go and talk to a snail.",
+    "you: Careful, you almost smiled. || them: And now I won't.",
+    "you: You're terrible at hiding when you're bored. || them: I'm not bored. I'm tired of this.",
+    'you: Is that your idea of a joke? || them: Is that yours?',
   ],
   'number|good': [
     "you: Can I get your number? || them: Go on, then. Use it.",
     "you: I'd like to be able to find you again. || them: Here. Don't make me wait too long.",
     "you: Give me a way to reach you. || them: Fine. Only because I like you.",
+    'you: Let me message you sometime. || them: Sometime soon, then. Here.',
+    "you: I'd hate to lose track of you. || them: Then don't. Here's how to find me.",
+    'you: Can I call you? || them: If you do it before I forget your face.',
+    "you: What's the best way to reach you? || them: This. Don't share it around.",
+    'you: Trade numbers with me. || them: Fair trade. You first.',
   ],
   'number|bad': [
     "you: Can I get your number? || them: I don't think so.",
     "you: I'd like to be able to find you again. || them: You found me today. That's enough.",
     "you: Give me a way to reach you. || them: Not yet.",
+    'you: Let me message you sometime. || them: Sometime is fine. Not now.',
+    "you: I'd hate to lose track of you. || them: You'll manage.",
+    "you: Can I call you? || them: I'd rather you didn't.",
+    "you: What's the best way to reach you? || them: Walking up to me, apparently.",
+    'you: Trade numbers with me. || them: Not today. Maybe not ever.',
   ],
   'askout|good': [
     "you: Let me take you out. || them: I was hoping you'd ask.",
     "you: Spend an evening with me. || them: Yes. Tell me when.",
     "you: I want to see you somewhere that isn't here. || them: Then let's.",
+    "you: Have a drink with me tonight. || them: One drink. We'll see about the second.",
+    "you: Let me show you somewhere good to eat. || them: If it's as good as you say, I'm in.",
+    "you: Walk with me later? || them: Later, then. Don't keep me waiting.",
+    "you: I'd like to know you better, away from all this. || them: Then pick a time and a place.",
+    'you: Free this weekend? || them: I am now.',
   ],
   'askout|bad': [
     "you: Let me take you out. || them: I don't think that's a good idea.",
     "you: Spend an evening with me. || them: I'm busy. For a while.",
     "you: I want to see you somewhere that isn't here. || them: This is where you'll see me.",
+    "you: Have a drink with me tonight. || them: I don't drink with people I've just met.",
+    "you: Let me show you somewhere good to eat. || them: I'll eat on my own, thanks.",
+    "you: Walk with me later? || them: I've got somewhere to be.",
+    "you: I'd like to know you better, away from all this. || them: You know me as well as you need to.",
+    'you: Free this weekend? || them: Not for you.',
   ],
   'proposition|good': [
     "you: I want you. Tonight. || them: Then stop talking and take me somewhere.",
     "you: Come to bed with me. || them: I thought you'd never ask.",
     "you: I can't stop thinking about getting you out of those clothes. || them: So stop thinking.",
+    "you: Let's go somewhere we won't be interrupted. || them: Lead the way. Quickly.",
+    "you: I want to spend the night with you. || them: Then don't waste any more of it.",
+    'you: Stay with me tonight. || them: I was going to ask you the same thing.',
+    "you: Tell me you've thought about it too. || them: More than I'd like to admit. Come here.",
+    "you: Your place or mine? || them: Whichever's closer.",
   ],
   'proposition|bad': [
     "you: I want you. Tonight. || them: Not happening.",
     "you: Come to bed with me. || them: You've got the wrong idea about me.",
     "you: I can't stop thinking about getting you out of those clothes. || them: Keep thinking. That's all you'll get.",
+    "you: Let's go somewhere we won't be interrupted. || them: I'm happy being interrupted, thanks.",
+    "you: I want to spend the night with you. || them: You'll be spending it alone.",
+    "you: Stay with me tonight. || them: I've got my own bed.",
+    "you: Tell me you've thought about it too. || them: I haven't. And I won't.",
+    'you: Your place or mine? || them: Neither.',
   ],
   'goodbye|good': [
     'you: I should get going. || them: Go on, then. See you around.',
     "you: I'll let you get on. || them: Take care of yourself.",
     'you: Until next time. || them: Until then.',
+    "you: I'll see you soon. || them: You'd better.",
+    'you: Time I was off. || them: Mind how you go.',
+    'you: Good talking with you. || them: Same. Come find me again.',
+    "you: I've kept you long enough. || them: You can keep me longer next time.",
+    "you: Catch you later. || them: I'll hold you to it.",
   ],
 };
 
@@ -363,12 +433,16 @@ export function knownBodies(byNumber) {
 // reload finishes what is missing and asks for nothing twice.
 export async function writeWorldBank({
   model, persona, log, save = async () => {}, onBatch = () => {}, faultsIn = defaultFaults, perCall = BANK_CELLS_PER_CALL,
+  batches = 0,
 }) {
   if (!usable(model)) return 0;
   const todo = missingWorldCells(log);
+  // asked for so many batches only, the first lines ahead of the rest of the
+  // queue (world/flow.mjs); the full call later asks for what is missing
+  const upTo = batches > 0 ? Math.min(todo.length, batches * perCall) : todo.length;
   let written = 0;
-  for (let i = 0; i < todo.length; i += perCall) {
-    let batch = todo.slice(i, i + perCall);
+  for (let i = 0; i < upTo; i += perCall) {
+    let batch = todo.slice(i, Math.min(i + perCall, upTo));
     for (let attempt = 0; attempt < 2 && batch.length; attempt += 1) {
       const text = typeof persona === 'function' ? persona() : persona;
       const reply = await ask(model, buildBankPrompt(text, batch), batch.length);

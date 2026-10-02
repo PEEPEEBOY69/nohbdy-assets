@@ -161,11 +161,11 @@ const saveTo = (store, worldId) => (log) => (store && worldId ? store.saveTable(
 
 // The world's bank, written in the background (world/flow.mjs asks after the
 // school's names). The records follow every batch.
-export function writeTheWorldBank({ model, persona, store, worldId, faultsIn }) {
+export function writeTheWorldBank({ model, persona, store, worldId, faultsIn, batches = 0 }) {
   if (state.worldId !== worldId) startTalkWorld(worldId);
   const log = state.log;
   return writeWorldBank({
-    model, persona, log, faultsIn, save: saveTo(store, worldId),
+    model, persona, log, faultsIn, batches, save: saveTo(store, worldId),
     onBatch: () => { if (state.log === log) state.records = recordsFromLog(log); },
   });
 }

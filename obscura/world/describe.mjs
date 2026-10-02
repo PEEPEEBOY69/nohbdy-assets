@@ -128,6 +128,80 @@ export function configLabel(text) {
   return lead + caseLike(core, mine) + text.slice(lead.length + core.length);
 }
 
+// A tattoo is kept, like a hairstyle, by a phrase that is also its key
+// (setup.ob_cosmetics.tattoos[phrase] holds its kind). The description the
+// engine builds (Person.full_description) prints the person's own phrases,
+// each after the article the engine chose; a long one is shown in Obscura's
+// words, found by its hash, with the article its words need. Only the
+// person's own phrases are looked for - found by value, never by text kept here.
+export const TATTOO_WORDS = {
+  '19e702bfa8e080': "sleeve in the Japanese style, koi swimming up a river",
+  '1d7a889de93a9': "line of kanji",
+  '1c20a72b9beb69': "lover's name inside a heart",
+  '7981b74f6609e': "skin torn open over flesh and bone",
+  '1debf6f60fb7b6': "flaming skull in sunglasses",
+  '81611da58962b': "cartoon skull beside a doll's head",
+  '14baae1ed02d4a': "skin torn open over machine parts",
+  '11424a33dffd73': "dragonfish climbing a waterfall",
+  '17b9b5cbeb2840': "sleeve of fine geometric work",
+  '547ffd6b310d6': "sleeve of fine, winding vines",
+  '1b29eb3fb7b4bc': "two playing cards",
+  '3ba9201d76077': "black-and-grey sleeve of a grinning skull, lifelike",
+  '191e0792622c0b': "black-and-grey sleeve of a lifelike snake",
+  '1fac37747c00e3': "lifelike sleeve of machinery showing through torn skin",
+  '25df81850a1c5': "full-colour sleeve of a grinning, mohawked skull",
+};
+
+const articleFor = (w) => (/^[aeiou]/i.test(w) ? 'an' : 'a');
+
+// A nail polish the original names at length ("glossy hot pink nail polish")
+// is kept the same way, on the person's makeup; shown in Obscura's words.
+export const MAKEUP_WORDS = {
+  '4611938bb5529': "emerald green polish with a frosted finish",
+  '1d450cbccf8138': "emerald green polish with a glittery finish",
+  '19882ba55951df': "neon blue polish with a glittery finish",
+  '1e8d70893e2409': "emerald green polish with a glossy finish",
+  '46cb3a409b1f1': "hot pink polish with a glossy finish",
+  '18dd15b7df3bc': "neon blue polish with a glossy finish",
+  '36b76c7359df4': "neon purple polish with a glossy finish",
+  'bf732c2797ac5': "emerald green polish with a iridescent finish",
+  '8f10644ac270a': "neon blue polish with a iridescent finish",
+  'a76363a39aee': "neon purple polish with a iridescent finish",
+  '1a63fce7b17b85': "ruby red polish with a iridescent finish",
+  '1f31431b2f407': "sapphire blue polish with a iridescent finish",
+  '2b282e427231d': "emerald green polish with a matte finish",
+  '1d93f48fa4c2f5': "hot pink polish with a matte finish",
+  'a467603adbe3': "neon blue polish with a matte finish",
+  '8e9434d426144': "neon purple polish with a matte finish",
+  '1744acef567533': "ruby red polish with a matte finish",
+  '1e3ac296a4d9cf': "hot pink polish with a metallic finish",
+  'd6eee5f2ea741': "ruby red polish with a metallic finish",
+  '1af2e515157311': "emerald green polish with a pearlescent finish",
+  '195b111e3dc5ff': "neon blue polish with a pearlescent finish",
+  'c5917446ab3be': "ruby red polish with a shimmering finish",
+  '74922b3d5c191': "hot pink polish with a sparkly finish",
+  'f80668728dd60': "neon blue polish with a sparkly finish",
+  '1dbf84596a5a02': "ruby red polish with a sparkly finish",
+};
+
+// The person's own phrases, each found by its hash in `words`, swapped in the
+// engine's text with the article its new words need.
+export function swapOwn(text, phrases, words) {
+  if (typeof text !== 'string' || !phrases) return text;
+  let out = text;
+  for (const tat of new Set(phrases)) {
+    if (typeof tat !== 'string' || !tat) continue;
+    const mine = words[hash53(tat).toString(16)];
+    if (!mine) continue;
+    const said = `${articleFor(mine)} ${mine}`;
+    for (const art of ['a ', 'an ']) out = out.split(`${art}${tat}`).join(said);
+    out = out.split(tat).join(mine);
+  }
+  return out;
+}
+
+export const swapTattoos = (text, tattoos) => (tattoos && typeof tattoos === 'object' ? swapOwn(text, Object.values(tattoos), TATTOO_WORDS) : text);
+
 // Person.hair_descriptor, wrapped once: the engine still decides the length,
 // the colour, a shaved head and an updo.
 export function installDescriptions({ Person } = {}) {
@@ -141,5 +215,18 @@ export function installDescriptions({ Person } = {}) {
   };
   wrapped.obscura = true;
   proto.hair_descriptor = wrapped;
+  // and the whole description, for the person's own tattoos
+  const full = proto.full_description;
+  if (typeof full === 'function' && !full.obscura) {
+    const described = function fullDescription(...args) {
+      const out = full.apply(this, args);
+      try {
+        const makeup = this && this.makeup && typeof this.makeup === 'object' ? Object.values(this.makeup) : [];
+        return swapOwn(swapTattoos(out, this && this.tattoos), makeup, MAKEUP_WORDS);
+      } catch { return out; }
+    };
+    described.obscura = true;
+    proto.full_description = described;
+  }
   return true;
 }

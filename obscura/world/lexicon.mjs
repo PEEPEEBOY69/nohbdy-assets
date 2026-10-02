@@ -117,7 +117,8 @@ export function carriesArticle(word) {
 export function atSentenceStart(full, offset) {
   if (!offset) return true;
   const before = String(full).slice(0, offset);
-  return /(^|[.!?:;]|\n)\s*$/.test(before);
+  // a semicolon joins two halves of one sentence; a colon starts a label's value
+  return /(^|[.!?:]|\n)\s*$/.test(before);
 }
 
 // Decides the replacement's case from the ORIGINAL's position, not its
@@ -510,18 +511,19 @@ export const SETTING_UNDER_WORDS = 20;
 export const wordCount = (s) => String(s || '').trim().split(/\s+/).filter(Boolean).length;
 
 // Which of the school's systems this world has. Asked in the first call, and
-// only a clear "no" switches one off: a failed or vague answer leaves the
-// world as the engine made it.
+// only a clear "yes" keeps one: a failed or vague answer is a world that was
+// never a school. (It was the other way round, and a guild port whose work
+// has shifts kept a timetable, grades and courses - v43.)
 export const SYSTEM_QUESTIONS = [
-  ['timetable', 'do members keep scheduled sessions they must attend (lessons, drills, shifts)?'],
+  ['timetable', 'is this world built around a school, academy, college or training house whose members attend lessons on a weekly timetable? Work, shifts, chores and duties do not count'],
   ['grades', 'is their work formally marked or graded?'],
   ['sports', 'do teams from this place play organised games against rival places, the way a school or a town fields a team?'],
   ['divisions', 'can members join exclusive houses or societies that recruit newcomers and throw parties, the way fraternities do?'],
 ];
 
 export function parseSystems(parsed) {
-  const no = (v) => v === false || /^\s*no\b/i.test(String(v == null ? '' : v));
-  const systems = Object.fromEntries(SYSTEM_QUESTIONS.map(([k]) => [k, !no(parsed && parsed[k])]));
+  const yes = (v) => v === true || /^\s*yes\b/i.test(String(v == null ? '' : v));
+  const systems = Object.fromEntries(SYSTEM_QUESTIONS.map(([k]) => [k, yes(parsed && parsed[k])]));
   // grades only exist through courses
   if (!systems.timetable) systems.grades = false;
   return systems;
@@ -611,16 +613,48 @@ export async function generateLexicon(premise, model) {
 // objects, and building them per passage render would be wasteful.
 export function install(config, source, renamesSource = null) {
   const previous = config.passages.onProcess;
+  const words = lexiconWords(source, renamesSource);
+  config.passages.onProcess = function (p) {
+    const text = typeof previous === 'function' ? previous.call(this, p) : p.text;
+    return words(text);
+  };
+  return config.passages.onProcess;
+}
+
+// The world's words for any text, as the passage hook gives them: the
+// lexicon and the renames read live (a save keeps its words), compiled again
+// only when either changes.
+export function lexiconWords(source, renamesSource = null) {
   let key = null;
   let compiled = null;
   const read = (fn) => { try { return typeof fn === 'function' ? fn() : fn; } catch { return null; } };
-  config.passages.onProcess = function (p) {
-    const text = typeof previous === 'function' ? previous.call(this, p) : p.text;
+  return (text) => {
     const lex = read(source);
     const renames = read(renamesSource);
     const next = JSON.stringify(lex || {}) + '\u0000' + JSON.stringify(renames || {});
     if (next !== key) { key = next; compiled = compile(lex || {}, renames); }
     return substitute(text, compiled);
   };
-  return config.passages.onProcess;
+}
+
+// A dialog's title is set in script (Dialog.setup), where the passage hook
+// never reaches - "College Schedule" stood over the timetable in every world
+// (v43's long walk). SugarCube's Dialog cannot be wrapped (its methods are not
+// writable), so the title is put in the world's words as the dialog opens,
+// after Dialog.setup has set it; a dialog opened again under the title it
+// was given is left as it is.
+export function installDialogTitles({ $, doc, words } = {}) {
+  if (typeof $ !== 'function' || !doc || typeof words !== 'function') return false;
+  let last = null;
+  $(doc).on(':dialogopening', () => {
+    const el = doc.getElementById('ui-dialog-title');
+    if (!el) return;
+    const t = String(el.textContent || '');
+    if (t === last) return;
+    let w = t;
+    try { w = String(words(t)); } catch { w = t; }
+    last = w;
+    if (w !== t) el.textContent = w;
+  });
+  return true;
 }

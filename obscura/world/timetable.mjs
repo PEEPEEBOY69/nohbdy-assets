@@ -59,6 +59,8 @@ export function installTimetable(deps = {}) {
   const School = setup && setup.School;
   if (!School) return false;
   const V = () => SC.State.variables;
+  // asked by the passages that set up a school's year (build.mjs, skipClassesWithoutTimetable)
+  setup.ob_no_timetable = () => !systemsOf(V()).timetable;
   const noGameOfTheirs = () => { try { return !School.current_game(true); } catch { return true; } };
 
   // next_class has no base case for an empty roster: it asks about tomorrow
